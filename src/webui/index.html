@@ -638,14 +638,9 @@
                 </div>
                 <div class="form-group">
                     <label>目标模型 *</label>
-                    <div class="model-select-wrapper">
-                        <div class="input-group">
-                            <select id="aliasTargetSelect" onchange="onTargetSelectChange()" disabled>
-                                <option value="">-- 请先选择上游 --</option>
-                            </select>
-                            <input type="text" id="aliasTargetCustom" placeholder="或手动输入" disabled>
-                        </div>
-                    </div>
+                    <select id="aliasTargetSelect" disabled>
+                        <option value="">-- 请先选择上游 --</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -955,11 +950,8 @@
             updateUpstreamSelect();
             // 重置目标模型选择框
             const select = document.getElementById('aliasTargetSelect');
-            const customInput = document.getElementById('aliasTargetCustom');
             select.innerHTML = '<option value="">-- 请先选择上游 --</option>';
             select.disabled = true;
-            customInput.value = '';
-            customInput.disabled = true;
         }
 
         function closeAliasModal() {
@@ -978,18 +970,15 @@
         async function updateTargetSelect() {
             const upstreamName = document.getElementById('aliasUpstream').value;
             const select = document.getElementById('aliasTargetSelect');
-            const customInput = document.getElementById('aliasTargetCustom');
 
             if (!upstreamName) {
                 select.innerHTML = '<option value="">-- 请先选择上游 --</option>';
                 select.disabled = true;
-                customInput.disabled = true;
                 return;
             }
 
             // 启用目标模型选择框
             select.disabled = false;
-            customInput.disabled = false;
 
             // 每次选择上游都重新加载模型列表
             select.innerHTML = '<option value="">加载中...</option>';
@@ -1027,13 +1016,6 @@
             }
         }
 
-        // 当目标模型选择变化时，同步更新自定义输入框
-        function onTargetSelectChange() {
-            const select = document.getElementById('aliasTargetSelect');
-            const customInput = document.getElementById('aliasTargetCustom');
-            customInput.value = select.value;
-        }
-
         function editAlias(index) {
             const a = config.aliases[index];
             document.getElementById('aliasModal').classList.add('active');
@@ -1059,9 +1041,7 @@
 
             // 先启用选择框，然后加载模型列表
             const select = document.getElementById('aliasTargetSelect');
-            const customInput = document.getElementById('aliasTargetCustom');
             select.disabled = false;
-            customInput.disabled = false;
 
             // 直接加载模型列表（不依赖 onchange 事件）
             (async () => {
@@ -1091,10 +1071,8 @@
                                 // 加载完成后设置目标模型
                                 if (models.includes(a.target_model)) {
                                     select.value = a.target_model;
-                                    customInput.value = '';
                                 } else {
-                                    select.value = '';
-                                    customInput.value = a.target_model;
+                                    select.value = a.target_model;
                                 }
                             }
                         } else {
@@ -1256,10 +1234,8 @@
         async function saveAlias(e) {
             e.preventDefault();
 
-            // 获取目标模型（优先使用下拉选择，否则使用自定义输入）
-            const targetSelect = document.getElementById('aliasTargetSelect').value;
-            const targetCustom = document.getElementById('aliasTargetCustom').value;
-            const targetModel = targetSelect || targetCustom;
+            // 获取目标模型
+            const targetModel = document.getElementById('aliasTargetSelect').value;
 
             if (!targetModel) {
                 showStatus('请选择或输入目标模型', 'error');
