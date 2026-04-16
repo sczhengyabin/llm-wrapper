@@ -70,6 +70,7 @@ aliases:
 
 - `POST /v1/chat/completions` - 聊天补全
 - `POST /v1/responses` - Responses API（需上游支持）
+- `POST /v1/messages` - Anthropic Messages API（需上游支持）
 - `GET /v1/models` - 模型列表
 
 ### WebUI
@@ -109,6 +110,23 @@ curl -X POST http://localhost:3000/v1/responses \
 ```
 
 > 注意：Responses API 需要上游服务支持。如果上游仅支持 Chat Completions 协议，响应格式可能不符合 Responses API 规范。
+
+### 调用 Anthropic Messages API
+
+```bash
+curl -X POST http://localhost:3000/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-anthropic-api-key" \
+  -d '{
+    "model": "claude-sonnet-4",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello"}
+    ]
+  }'
+```
+
+> 注意：Messages API 需要上游服务支持 Anthropic 协议（如 Anthropic API）。如果上游不支持，将返回 404/405 错误。
 
 ## 项目结构
 

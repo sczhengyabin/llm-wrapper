@@ -93,6 +93,7 @@ async fn main() -> std::io::Result<()> {
             // API v1 路由
             .route("/v1/chat/completions", web::post().to(chat_completions))
             .route("/v1/responses", web::post().to(responses))
+            .route("/v1/messages", web::post().to(messages))
             .route("/v1/models/", web::get().to(list_models))
             .route("/v1/models", web::get().to(list_models))
             // WebUI
@@ -234,6 +235,76 @@ async fn responses(
                 HttpResponse::BadGateway().json(json!({
                     "error": {
                         "message": format!("上游服务不支持 Responses API (/v1/responses)，请使用 Chat Completions API (/v1/chat/completions)。错误：{}", e)
+                    }
+                }))
+            } else {
+                HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
+            }
+        }
+    }
+}
+
+async fn messages(
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+    req: actix_web::HttpRequest,
+) -> HttpResponse {
+    use crate::proxy::Proxy;
+    use crate::router::ModelRouter;
+
+    // 检查是否启用调试模式
+    let debug_mode = req
+        .headers()
+        .get("X-Debug-Mode")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    // 获取模型名
+    let model = match body.get("model").and_then(|m| m.as_str()) {
+        Some(m) => m.to_string(),
+        None => return HttpResponse::BadRequest().json(json!({"error": {"message": "缺少 model 参数"}})),
+    };
+
+    let router = ModelRouter::new(state.config.clone());
+    let proxy = Proxy::new();
+
+    // 查找路由
+    let route = match router.route(&model).await {
+        Some(r) => r,
+        None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
+    };
+
+    // 直接转发到上游的 /v1/messages 端点
+    let original_body = body.into_inner();
+
+    match proxy.proxy_request_with_debug(
+        &route,
+        "POST".to_string(),
+        "/v1/messages".to_string(),
+        original_body,
+        Some(state.debug_data.data.clone()),
+    ).await {
+        Ok(resp) => {
+            if debug_mode {
+                // 返回调试信息（只返回调试数据）
+                let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
+                    client_request: serde_json::Value::Null,
+                    upstream_request: serde_json::Value::Null,
+                    upstream_response: serde_json::Value::Null,
+                });
+                return HttpResponse::Ok().json(json!({
+                    "debug": debug_info
+                }));
+            }
+            resp
+        }
+        Err(e) => {
+            // 检查是否是上游不支持 Messages API 的错误
+            if e.contains("404") || e.contains("405") {
+                HttpResponse::BadGateway().json(json!({
+                    "error": {
+                        "message": format!("上游服务不支持 Messages API (/v1/messages)。错误：{}", e)
                     }
                 }))
             } else {
