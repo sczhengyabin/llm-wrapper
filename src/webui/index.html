@@ -847,7 +847,7 @@
                 return;
             }
             list.innerHTML = config.aliases.map((a, i) => {
-                const upstream = config.upstreams.find(u => u.name === a.upstream_id);
+                const upstream = config.upstreams.find(u => u.name === a.upstream);
                 const paramsHtml = (a.param_overrides && a.param_overrides.length > 0) ?
                     `<div class="param-tags">
                         ${a.param_overrides.map(p => `
@@ -859,7 +859,7 @@
                         <div class="item-info">
                             <div class="item-title">${escapeHtml(a.alias)}</div>
                             <div class="item-detail">目标：${escapeHtml(a.target_model)}</div>
-                            <div class="item-detail">上游：${upstream ? upstream.name : '未知'} (${a.upstream_id})</div>
+                            <div class="item-detail">上游：${upstream ? upstream.name : '未知'}</div>
                             ${paramsHtml}
                         </div>
                         <div class="item-actions">
@@ -1055,7 +1055,7 @@
 
             // 设置上游并触发模型列表加载
             const upstreamSelect = document.getElementById('aliasUpstream');
-            upstreamSelect.value = a.upstream_id;
+            upstreamSelect.value = a.upstream;
 
             // 先启用选择框，然后加载模型列表
             const select = document.getElementById('aliasTargetSelect');
@@ -1068,7 +1068,7 @@
                 select.innerHTML = '<option value="">加载中...</option>';
 
                 // 找到当前选择的上游配置
-                const upstream = config.upstreams.find(u => u.name === a.upstream_id);
+                const upstream = config.upstreams.find(u => u.name === a.upstream);
                 if (upstream) {
                     let url = `${upstream.base_url}/v1/models`;
                     const headers = {};
@@ -1288,7 +1288,7 @@
             const alias = {
                 alias: document.getElementById('aliasName').value,
                 target_model: targetModel,
-                upstream_id: document.getElementById('aliasUpstream').value,
+                upstream: document.getElementById('aliasUpstream').value,
                 param_overrides: paramOverrides
             };
 

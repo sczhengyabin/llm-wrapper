@@ -62,7 +62,7 @@ impl ModelRouter {
         config: &crate::models::AppConfig,
     ) -> Option<RouteResult> {
         let upstream = config.upstreams.iter()
-            .find(|u| u.name == alias.upstream_id && u.enabled)?;
+            .find(|u| u.name == alias.upstream && u.enabled)?;
 
         let mut override_params = HashMap::new();
         let mut default_params = HashMap::new();

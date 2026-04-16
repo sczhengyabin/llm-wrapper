@@ -68,19 +68,19 @@ pub struct ModelAlias {
     pub alias: String,
     /// 目标模型名称
     pub target_model: String,
-    /// 上游 ID
-    pub upstream_id: String,
+    /// 上游名称
+    pub upstream: String,
     /// 参数覆盖列表
     #[serde(default)]
     pub param_overrides: Vec<ParamOverride>,
 }
 
 impl ModelAlias {
-    pub fn new(alias: String, target_model: String, upstream_id: String) -> Self {
+    pub fn new(alias: String, target_model: String, upstream: String) -> Self {
         Self {
             alias,
             target_model,
-            upstream_id,
+            upstream,
             param_overrides: Vec::new(),
         }
     }
