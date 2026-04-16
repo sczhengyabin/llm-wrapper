@@ -6,10 +6,11 @@
 
 - **多上游聚合**：支持配置多个上游 OpenAI 兼容 API
 - **模型别名**：为上游模型定义本地别名
-- **参数覆盖**：支持 `override`（强制覆盖）和 `default`（默认值）两种模式
+- **参数设置**：支持 `override`（覆盖）和 `default`（默认）两种模式
 - **配置热更新**：WebUI 修改配置后无需重启立即生效
 - **YAML 配置**：支持配置文件持久化
 - **单文件 WebUI**：纯 HTML + JS 实现的管理界面
+- **API 密钥脱敏**：管理接口返回的 API 密钥自动脱敏
 
 ## 快速开始
 
@@ -28,15 +29,15 @@ cargo build --release
 ### 环境变量
 
 - `CONFIG_PATH` - 配置文件路径（默认：config.yaml）
-- `BIND_ADDR` - 监听地址（默认：0.0.0.0:3000）
+- `BIND_ADDR` - 监听地址（默认：127.0.0.1:3000）
+- `ADMIN_API_KEY` - 管理接口认证密钥（可选）
 
 ## 配置示例
 
 ```yaml
-# 上游配置
+# 上游配置（name 作为唯一标识）
 upstreams:
-  - id: qwen-test
-    name: Qwen3.5-122B
+  - name: qwen-test
     base_url: http://192.168.100.7:30002
     api_key: null  # 或 "your-api-key"
     enabled: true
@@ -45,11 +46,17 @@ upstreams:
 aliases:
   - alias: qwen
     target_model: Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
-    upstream_id: qwen-test
+    upstream: qwen-test
     param_overrides:
       - key: temperature
         value: 0.7
         mode: default  # 或 override
+      # extra_body 单独配置
+      - key: extra_body
+        value:
+          chat_template_kwargs:
+            enable_thinking: false
+        mode: default
 ```
 
 ## API 端点
@@ -66,7 +73,7 @@ aliases:
 
 ### WebUI
 
-- `GET /webui/` - 管理界面
+- `GET /` - WebUI 管理界面
 
 ## 使用示例
 
@@ -110,6 +117,7 @@ llm-wrapper/
 
 - [ ] Docker 部署支持
 - [ ] responses 端点
-- [ ] 流式响应支持（SSE）
 - [ ] 上游健康检查
 - [ ] 负载均衡策略
+- [ ] 请求限流
+- [ ] 日志持久化
