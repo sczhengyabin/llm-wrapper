@@ -241,7 +241,7 @@
             gap: 10px;
             margin-bottom: 10px;
             align-items: center;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
         }
         .param-row select[data-field="key"] {
             flex: 1.5;
@@ -268,19 +268,34 @@
             min-height: 60px;
         }
         .param-row select[data-field="mode"] {
-            flex: 1;
-            min-width: 120px;
+            flex: 0 0 100px;
         }
         .param-row .remove-param {
-            flex: 0;
-        }
-        .param-row .remove-param {
+            flex: 0 0 auto;
             background: #dc3545;
             color: white;
             border: none;
-            padding: 8px 12px;
+            padding: 8px 16px;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        .param-row .remove-param:hover {
+            background: #c82333;
+        }
+        .btn-add {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        .btn-add:hover {
+            background: #218838;
         }
         .param-tags {
             display: flex;
@@ -632,11 +647,17 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>参数覆盖</label>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label>参数覆盖</label>
+                        <button type="button" class="btn btn-add" onclick="addParamOverride()">添加</button>
+                    </div>
                     <div id="paramOverrides">
                         <div class="empty-state" style="padding: 10px;">暂无参数覆盖</div>
                     </div>
-                    <button type="button" class="btn" onclick="addParamOverride()" style="margin-top: 10px;">添加参数</button>
+                </div>
+                <div class="form-group">
+                    <label>extra_body (JSON 格式)</label>
+                    <textarea id="aliasExtraBody" placeholder='{"chat_template_kwargs": {"enable_thinking": false}}' rows="4" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px;"></textarea>
                 </div>
                 <button type="submit" class="btn btn-success save-btn">保存</button>
             </form>
@@ -925,6 +946,7 @@
             document.getElementById('aliasModalTitle').textContent = '添加别名';
             document.getElementById('aliasForm').reset();
             document.getElementById('aliasId').value = '';
+            document.getElementById('aliasExtraBody').value = '';
             editingAliasIndex = -1;
             renderParamOverrides([]);
             updateUpstreamSelect();
@@ -1016,6 +1038,15 @@
             document.getElementById('aliasId').value = a.id || '';
             document.getElementById('aliasName').value = a.alias;
             editingAliasIndex = index;
+
+            // 提取 extra_body 并填充到独立输入框
+            const extraBodyParam = (a.param_overrides || []).find(p => p.key === 'extra_body');
+            if (extraBodyParam && extraBodyParam.value) {
+                document.getElementById('aliasExtraBody').value = JSON.stringify(extraBodyParam.value, null, 2);
+            } else {
+                document.getElementById('aliasExtraBody').value = '';
+            }
+
             renderParamOverrides(a.param_overrides || []);
             updateUpstreamSelect();
 
@@ -1084,20 +1115,18 @@
         // 参数覆盖
         function renderParamOverrides(params) {
             const container = document.getElementById('paramOverrides');
-            if (!params || params.length === 0) {
+            // 过滤掉 extra_body，它已经有独立的输入框
+            const filteredParams = (params || []).filter(p => p.key !== 'extra_body');
+            if (filteredParams.length === 0) {
                 container.innerHTML = '<div class="empty-state" style="padding: 10px;">暂无参数覆盖</div>';
                 return;
             }
-            container.innerHTML = params.map((p, i) => {
+            container.innerHTML = filteredParams.map((p, i) => {
                 const key = p.key || '';
                 const value = p.value !== undefined ? escapeJson(p.value) : '';
                 const mode = p.mode || 'default';
 
-                // 对于 JSON 参数，使用 textarea 支持多行输入
-                const isJsonParam = key === 'extra_body' || key === 'chat-completion-kwargs';
-                const valueInputHtml = isJsonParam
-                    ? `<textarea data-index="${i}" data-field="value" placeholder="参数值（JSON 格式）" rows="3" style="flex: 2; min-width: 200px;">${value}</textarea>`
-                    : `<input type="text" data-index="${i}" data-field="value" placeholder="参数值" value="${value}">`;
+                const valueInputHtml = `<input type="text" data-index="${i}" data-field="value" placeholder="参数值" value="${value}">`;
 
                 return `
                 <div class="param-row">
@@ -1169,12 +1198,13 @@
         async function saveUpstream(e) {
             e.preventDefault();
             const id = document.getElementById('upstreamId').value;
+            const enabledElement = document.getElementById('upstreamEnabled');
             const upstream = {
                 id: id || generateUUID(),
                 name: document.getElementById('upstreamName').value,
                 base_url: document.getElementById('upstreamBaseUrl').value,
                 api_key: document.getElementById('upstreamApiKey').value || null,
-                enabled: document.getElementById('upstreamEnabled').checked
+                enabled: enabledElement ? enabledElement.checked : true
             };
 
             if (id) {
@@ -1234,11 +1264,30 @@
                 return;
             }
 
+            // 获取其他参数覆盖
+            let paramOverrides = getParamOverridesFromForm();
+
+            // 如果有 extra_body，添加到 param_overrides
+            const extraBodyValue = document.getElementById('aliasExtraBody').value.trim();
+            if (extraBodyValue) {
+                try {
+                    const extraBodyJson = JSON.parse(extraBodyValue);
+                    paramOverrides.push({
+                        key: 'extra_body',
+                        value: extraBodyJson,
+                        mode: 'default'
+                    });
+                } catch (e) {
+                    showStatus('extra_body 必须是有效的 JSON 格式', 'error');
+                    return;
+                }
+            }
+
             const alias = {
                 alias: document.getElementById('aliasName').value,
                 target_model: targetModel,
                 upstream_id: document.getElementById('aliasUpstream').value,
-                param_overrides: getParamOverridesFromForm()
+                param_overrides: paramOverrides
             };
 
             if (editingAliasIndex >= 0) {
