@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# 日志和临时文件
+*.log
+tmp/
+
+# Docker
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# 文档
+*.md
+docs/
+
+# 测试
+tests/
+*.test.rs

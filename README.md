@@ -26,6 +26,39 @@ cargo build --release
 ./target/release/llm-wrapper
 ```
 
+### Docker 部署
+
+**使用 Docker 运行：**
+
+```bash
+docker run -d \
+  --name llm-wrapper \
+  -p 3000:3000 \
+  -v $(pwd)/config:/app/config \
+  -e BIND_ADDR=0.0.0.0:3000 \
+  -e CONFIG_PATH=/app/config/config.yaml \
+  llm-wrapper:latest
+```
+
+**使用 docker-compose：**
+
+```bash
+# 启动
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止
+docker-compose down
+```
+
+**构建镜像：**
+
+```bash
+docker build -t llm-wrapper:latest .
+```
+
 ### 环境变量
 
 - `CONFIG_PATH` - 配置文件路径（默认：config.yaml）
@@ -147,7 +180,7 @@ llm-wrapper/
 
 ## 待办事项
 
-- [ ] Docker 部署支持
+- [x] Docker 部署支持
 - [ ] 上游健康检查
 - [ ] 负载均衡策略
 - [ ] 请求限流

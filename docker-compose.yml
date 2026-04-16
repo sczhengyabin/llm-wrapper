@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  llm-wrapper:
+    image: llm-wrapper:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - BIND_ADDR=0.0.0.0:3000
+      - CONFIG_PATH=/app/config/config.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
