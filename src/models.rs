@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
 
 /// 参数覆盖模式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -28,9 +27,7 @@ pub struct ParamOverride {
 /// 上游配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamConfig {
-    /// 上游唯一标识（自动生成或手动指定）
-    pub id: String,
-    /// 上游名称
+    /// 上游名称（用作唯一标识）
     pub name: String,
     /// 上游 API 基础 URL
     pub base_url: String,
@@ -49,12 +46,18 @@ fn default_true() -> bool {
 impl UpstreamConfig {
     pub fn new(name: String, base_url: String) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
-            name,
+            name: name.clone(),
             base_url,
             api_key: None,
             enabled: true,
         }
+    }
+}
+
+impl UpstreamConfig {
+    /// 获取上游 ID（现在就是 name）
+    pub fn id(&self) -> &str {
+        &self.name
     }
 }
 

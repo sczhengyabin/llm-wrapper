@@ -2,16 +2,14 @@
 # 复制此文件为 config.yaml 并修改为你的配置
 
 upstreams:
-  # 上游 1: vllm 服务
-  - id: vllm-1
-    name: vllm
+  # 上游 1: vllm 服务（name 用作唯一标识）
+  - name: vllm
     base_url: http://127.0.0.1:30002
     api_key: null  # 如果不需要密钥，设为 null 或空字符串
     enabled: true
 
   # 上游 2: OpenAI 兼容服务
-  - id: openai-compatible
-    name: omlx
+  - name: omlx
     base_url: http://127.0.0.1:8080
     api_key: your-api-key-here
     enabled: true
@@ -20,13 +18,13 @@ aliases:
   # 别名 1: 简单别名，直接映射到上游模型
   - alias: qwen
     target_model: Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
-    upstream_id: vllm-1
+    upstream_id: vllm
     param_overrides: []
 
   # 别名 2: 带参数覆盖的别名
   - alias: qwen-no-thinking
     target_model: Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
-    upstream_id: vllm-1
+    upstream_id: vllm
     param_overrides:
       # default: 只有用户未设置时才应用
       - key: temperature

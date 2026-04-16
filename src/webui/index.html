@@ -151,6 +151,11 @@
             display: flex;
             gap: 8px;
         }
+        .item-actions .btn {
+            flex: 0 0 auto;
+            min-width: 60px;
+            white-space: nowrap;
+        }
         /* Toggle Switch */
         .switch {
             position: relative;
@@ -328,9 +333,6 @@
         }
         .save-btn {
             width: 100%;
-            padding: 12px;
-            font-size: 16px;
-            margin-top: 15px;
         }
         .status {
             position: fixed;
@@ -595,10 +597,9 @@
                 <button class="close-btn" onclick="closeUpstreamModal()">&times;</button>
             </div>
             <form id="upstreamForm" onsubmit="saveUpstream(event)">
-                <input type="hidden" id="upstreamId">
                 <div class="form-group">
                     <label>名称 *</label>
-                    <input type="text" id="upstreamName" required placeholder="上游名称">
+                    <input type="text" id="upstreamName" required placeholder="上游名称（用作唯一标识）">
                 </div>
                 <div class="form-group">
                     <label>基础 URL *</label>
@@ -608,7 +609,7 @@
                     <label>API 密钥</label>
                     <input type="text" id="upstreamApiKey" placeholder="留空表示不需要密钥">
                 </div>
-                <div class="form-group" style="display: flex; gap: 10px; align-items: center;">
+                <div class="form-group" style="display: flex; gap: 10px; align-items: stretch;">
                     <button type="button" class="btn btn-primary" onclick="testUpstream()" style="flex: 1;">测试连接</button>
                     <button type="submit" class="btn btn-success save-btn" style="flex: 1;">保存</button>
                 </div>
@@ -806,7 +807,7 @@
                 return;
             }
             list.innerHTML = config.upstreams.map((u, i) => {
-                const models = upstreamModelsCache[u.id] || [];
+                const models = upstreamModelsCache[u.name] || [];
                 const modelsHtml = models.length > 0
                     ? `<div class="models-wrapper">
                         <div class="models-label">可用模型</div>
@@ -824,7 +825,7 @@
                         </label>
                         <div class="item-info">
                             <div class="item-title">${escapeHtml(u.name)}</div>
-                            <div class="item-detail">ID: ${u.id} | ${escapeHtml(u.base_url)}</div>
+                            <div class="item-detail">${escapeHtml(u.base_url)}</div>
                             <div class="item-detail">API Key: ${u.api_key || 'none'}</div>
                             ${modelsHtml}
                         </div>
@@ -846,7 +847,7 @@
                 return;
             }
             list.innerHTML = config.aliases.map((a, i) => {
-                const upstream = config.upstreams.find(u => u.id === a.upstream_id);
+                const upstream = config.upstreams.find(u => u.name === a.upstream_id);
                 const paramsHtml = (a.param_overrides && a.param_overrides.length > 0) ?
                     `<div class="param-tags">
                         ${a.param_overrides.map(p => `
@@ -875,7 +876,7 @@
             document.getElementById('upstreamModal').classList.add('active');
             document.getElementById('upstreamModalTitle').textContent = '添加上游';
             document.getElementById('upstreamForm').reset();
-            document.getElementById('upstreamId').value = '';
+            document.getElementById('upstreamName').readOnly = false;
             hideTestResult();
         }
 
@@ -917,14 +918,16 @@
 
         function closeUpstreamModal() {
             document.getElementById('upstreamModal').classList.remove('active');
+            document.getElementById('upstreamName').readOnly = false;
+            document.getElementById('upstreamForm').reset();
         }
 
         function editUpstream(index) {
             const u = config.upstreams[index];
             document.getElementById('upstreamModal').classList.add('active');
             document.getElementById('upstreamModalTitle').textContent = '编辑上游';
-            document.getElementById('upstreamId').value = u.id;
             document.getElementById('upstreamName').value = u.name;
+            document.getElementById('upstreamName').readOnly = true;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
             document.getElementById('upstreamApiKey').value = u.api_key || '';
         }
@@ -968,16 +971,16 @@
             select.innerHTML = '<option value="">-- 请选择上游 --</option>' +
                 config.upstreams
                     .filter(u => u.enabled)
-                    .map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+                    .map(u => `<option value="${u.name}">${u.name}</option>`).join('');
         }
 
         // 更新目标模型下拉框（从当前选择的上游获取模型列表）
         async function updateTargetSelect() {
-            const upstreamId = document.getElementById('aliasUpstream').value;
+            const upstreamName = document.getElementById('aliasUpstream').value;
             const select = document.getElementById('aliasTargetSelect');
             const customInput = document.getElementById('aliasTargetCustom');
 
-            if (!upstreamId) {
+            if (!upstreamName) {
                 select.innerHTML = '<option value="">-- 请先选择上游 --</option>';
                 select.disabled = true;
                 customInput.disabled = true;
@@ -992,7 +995,7 @@
             select.innerHTML = '<option value="">加载中...</option>';
 
             // 找到当前选择的上游配置
-            const upstream = config.upstreams.find(u => u.id === upstreamId);
+            const upstream = config.upstreams.find(u => u.name === upstreamName);
             if (!upstream) {
                 select.innerHTML = '<option value="">上游不存在</option>';
                 return;
@@ -1065,7 +1068,7 @@
                 select.innerHTML = '<option value="">加载中...</option>';
 
                 // 找到当前选择的上游配置
-                const upstream = config.upstreams.find(u => u.id === a.upstream_id);
+                const upstream = config.upstreams.find(u => u.name === a.upstream_id);
                 if (upstream) {
                     let url = `${upstream.base_url}/v1/models`;
                     const headers = {};
@@ -1197,19 +1200,18 @@
         // 保存
         async function saveUpstream(e) {
             e.preventDefault();
-            const id = document.getElementById('upstreamId').value;
+            const name = document.getElementById('upstreamName').value;
             const enabledElement = document.getElementById('upstreamEnabled');
             const upstream = {
-                id: id || generateUUID(),
-                name: document.getElementById('upstreamName').value,
+                name: name,
                 base_url: document.getElementById('upstreamBaseUrl').value,
                 api_key: document.getElementById('upstreamApiKey').value || null,
                 enabled: enabledElement ? enabledElement.checked : true
             };
 
-            if (id) {
-                const index = config.upstreams.findIndex(u => u.id === id);
-                if (index !== -1) config.upstreams[index] = upstream;
+            const index = config.upstreams.findIndex(u => u.name === name);
+            if (index !== -1) {
+                config.upstreams[index] = upstream;
             } else {
                 config.upstreams.push(upstream);
             }

@@ -104,10 +104,10 @@ impl ConfigManager {
     }
 
     /// 获取上游配置
-    pub async fn get_upstream(&self, upstream_id: &str) -> Option<crate::models::UpstreamConfig> {
+    pub async fn get_upstream(&self, upstream_name: &str) -> Option<crate::models::UpstreamConfig> {
         let guard = self.inner.read().await;
         guard.config.upstreams.iter()
-            .find(|u| u.id == upstream_id && u.enabled)
+            .find(|u| u.name == upstream_name && u.enabled)
             .cloned()
     }
 

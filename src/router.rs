@@ -38,10 +38,10 @@ impl ModelRouter {
             return self.build_route_for_alias(alias, &config).await;
         }
 
-        // 如果没有找到别名，尝试直接使用 model 作为 upstream_id
-        // 这允许用户直接通过 upstream id 来路由
+        // 如果没有找到别名，尝试直接使用 model 作为 upstream name
+        // 这允许用户直接通过 upstream name 来路由
         if let Some(upstream) = config.upstreams.iter().find(|u| {
-            u.id == model || u.name == model
+            u.name == model
         }).filter(|u| u.enabled) {
             return Some(RouteResult {
                 upstream_base_url: upstream.base_url.clone(),
@@ -62,7 +62,7 @@ impl ModelRouter {
         config: &crate::models::AppConfig,
     ) -> Option<RouteResult> {
         let upstream = config.upstreams.iter()
-            .find(|u| u.id == alias.upstream_id && u.enabled)?;
+            .find(|u| u.name == alias.upstream_id && u.enabled)?;
 
         let mut override_params = HashMap::new();
         let mut default_params = HashMap::new();
