@@ -181,7 +181,31 @@ llm-wrapper/
 ## 待办事项
 
 - [x] Docker 部署支持
+- [x] GitHub Actions 自动构建
 - [ ] 上游健康检查
 - [ ] 负载均衡策略
 - [ ] 请求限流
 - [ ] 日志持久化
+
+## GitHub Actions CI/CD
+
+### 配置 Docker Hub 推送
+
+1. 在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加以下 Secrets：
+
+| 名称 | 说明 |
+|------|------|
+| `DOCKERHUB_USERNAME` | Docker Hub 用户名 |
+| `DOCKERHUB_TOKEN` | Docker Hub Access Token |
+
+2. 推送触发：
+   - 推送到 `main` 分支 → 构建 `latest` 和 `main` 标签
+   - 创建 `v*` 标签 → 构建对应版本标签
+
+### 手动触发构建
+
+```bash
+# 创建版本标签
+git tag v1.0.0
+git push origin v1.0.0
+```
