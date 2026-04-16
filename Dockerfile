@@ -32,8 +32,9 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 从构建阶段复制二进制文件
+# 从构建阶段复制二进制文件和 webui
 COPY --from=builder /app/target/release/llm-wrapper /app/llm-wrapper
+COPY --from=builder /app/src/webui /app/src/webui
 
 # 创建配置目录
 RUN mkdir -p /app/config
