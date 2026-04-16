@@ -644,11 +644,11 @@
                 </div>
                 <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <label>参数覆盖</label>
+                        <label>参数设置</label>
                         <button type="button" class="btn btn-add" onclick="addParamOverride()">添加</button>
                     </div>
                     <div id="paramOverrides">
-                        <div class="empty-state" style="padding: 10px;">暂无参数覆盖</div>
+                        <div class="empty-state" style="padding: 10px;">暂无参数设置</div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -846,7 +846,7 @@
                 const paramsHtml = (a.param_overrides && a.param_overrides.length > 0) ?
                     `<div class="param-tags">
                         ${a.param_overrides.map(p => `
-                            <span class="param-tag">${escapeHtml(p.key)}: <em>${escapeJson(p.value)}</em> <span class="param-mode">${p.mode}</span>
+                            <span class="param-tag">${escapeHtml(p.key)}: <em>${escapeJson(p.value)}</em> <span class="param-mode">${p.mode === 'default' ? '默认' : '覆盖'}</span>
                         </span>`).join('')}
                     </div>` : '';
                 return `
@@ -1099,7 +1099,7 @@
             // 过滤掉 extra_body，它已经有独立的输入框
             const filteredParams = (params || []).filter(p => p.key !== 'extra_body');
             if (filteredParams.length === 0) {
-                container.innerHTML = '<div class="empty-state" style="padding: 10px;">暂无参数覆盖</div>';
+                container.innerHTML = '<div class="empty-state" style="padding: 10px;">暂无参数设置</div>';
                 return;
             }
             container.innerHTML = filteredParams.map((p, i) => {
@@ -1114,8 +1114,8 @@
                     <input type="text" data-index="${i}" data-field="key" placeholder="参数名" value="${escapeHtml(key)}" style="flex: 1;">
                     ${valueInputHtml}
                     <select data-index="${i}" data-field="mode">
-                        <option value="default" ${mode === 'default' ? 'selected' : ''}>default</option>
-                        <option value="override" ${mode === 'override' ? 'selected' : ''}>override</option>
+                        <option value="default" ${mode === 'default' ? 'selected' : ''}>默认</option>
+                        <option value="override" ${mode === 'override' ? 'selected' : ''}>覆盖</option>
                     </select>
                     <button type="button" class="remove-param" onclick="removeParamOverride(${i})">删除</button>
                 </div>
