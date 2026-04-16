@@ -204,15 +204,14 @@ async fn responses(
         None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
     };
 
-    // 转换 Responses API 输入格式为 Chat Completions 格式
-    let chat_body = convert_responses_to_chat(body.into_inner());
+    // 直接转发到上游的 /v1/responses 端点
+    let original_body = body.into_inner();
 
-    // 代理请求（调试数据在 proxy 内部保存）
     match proxy.proxy_request_with_debug(
         &route,
         "POST".to_string(),
-        "/v1/chat/completions".to_string(),
-        chat_body,
+        "/v1/responses".to_string(),
+        original_body,
         Some(state.debug_data.data.clone()),
     ).await {
         Ok(resp) => {
@@ -227,11 +226,20 @@ async fn responses(
                     "debug": debug_info
                 }));
             }
-            // 直接透传上游响应
-            // 注意：上游需要支持 Responses API 格式
             resp
         }
-        Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
+        Err(e) => {
+            // 检查是否是上游不支持 Responses API 的错误
+            if e.contains("404") || e.contains("405") {
+                HttpResponse::BadGateway().json(json!({
+                    "error": {
+                        "message": format!("上游服务不支持 Responses API (/v1/responses)，请使用 Chat Completions API (/v1/chat/completions)。错误：{}", e)
+                    }
+                }))
+            } else {
+                HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
+            }
+        }
     }
 }
 
@@ -325,100 +333,6 @@ async fn webui_index() -> HttpResponse {
     HttpResponse::Found()
         .append_header(("Location", "/webui/index.html"))
         .finish()
-}
-
-/// 将 Responses API 请求格式转换为 Chat Completions 格式
-fn convert_responses_to_chat(body: serde_json::Value) -> serde_json::Value {
-    if let serde_json::Value::Object(mut map) = body {
-        // 提取 input 字段并转换为 messages
-        let input = map.remove("input");
-
-        if let Some(input) = input {
-            let messages = convert_input_to_messages(input);
-            map.insert("messages".to_string(), messages);
-        }
-
-        // 移除 Responses API 特有字段（上游可能不支持）
-        map.remove("instructions");
-        map.remove("previous_response_id");
-        map.remove("tool_choice");
-        map.remove("tools");
-        map.remove("store");
-        map.remove("metadata");
-        map.remove("truncation");
-        map.remove("text");
-        map.remove("reasoning");
-        map.remove("prompt_cache_key");
-        map.remove("prompt_cache_retention");
-        map.remove("max_tool_calls");
-
-        serde_json::Value::Object(map)
-    } else {
-        body
-    }
-}
-
-/// 将 input 字段转换为 messages 数组
-fn convert_input_to_messages(input: serde_json::Value) -> serde_json::Value {
-    // 简单字符串
-    if let serde_json::Value::String(s) = input {
-        return json!([{
-            "role": "user",
-            "content": s
-        }]);
-    }
-
-    // 消息数组
-    if let serde_json::Value::Array(arr) = input {
-        let messages: serde_json::Value = serde_json::to_value(
-            arr.iter()
-                .map(|item| convert_input_item_to_message(item))
-                .collect::<Vec<_>>()
-        ).unwrap_or_else(|_| json!([]));
-        return messages;
-    }
-
-    // 其他情况返回空数组
-    json!([])
-}
-
-/// 将单个 input item 转换为 message
-fn convert_input_item_to_message(item: &serde_json::Value) -> serde_json::Value {
-    if let serde_json::Value::Object(obj) = item {
-        let item_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("message");
-
-        match item_type {
-            "message" => {
-                let role = obj.get("role").and_then(|v| v.as_str()).unwrap_or("user");
-                let content = obj.get("content").cloned().unwrap_or_else(|| json!(""));
-                json!({
-                    "role": role,
-                    "content": content
-                })
-            }
-            "function_call_output" => {
-                let call_id = obj.get("call_id").cloned().unwrap_or_default();
-                let output = obj.get("output").cloned().unwrap_or_default();
-                json!({
-                    "role": "function",
-                    "name": call_id,
-                    "content": output
-                })
-            }
-            _ => {
-                // 其他类型暂时忽略
-                json!({
-                    "role": "user",
-                    "content": ""
-                })
-            }
-        }
-    } else {
-        json!({
-            "role": "user",
-            "content": item
-        })
-    }
 }
 
 use serde_json::json;

@@ -84,6 +84,13 @@ impl Proxy {
         let status = response.status();
         let headers = response.headers().clone();
 
+        // 检查是否是不支持端点的错误（404/405）
+        if status.as_u16() == 404 || status.as_u16() == 405 {
+            let body_bytes = response.bytes().await.map_err(|e| format!("读取响应失败：{}", e))?;
+            let error_body = String::from_utf8_lossy(&body_bytes);
+            return Err(format!("上游返回 {} - {}", status.as_u16(), error_body));
+        }
+
         // 检查是否是流式响应
         let content_type = headers
             .get(reqwest::header::CONTENT_TYPE)
