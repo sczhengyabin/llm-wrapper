@@ -82,7 +82,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            .app_data(web::JsonConfig::default().limit(4096))
+            .app_data(web::JsonConfig::default().limit(32 * 1024 * 1024)) // 32MB，支持 256K token 上下文
             .wrap(middleware::Logger::default())
             // 配置 API
             .route("/api/config", web::get().to(get_config))
