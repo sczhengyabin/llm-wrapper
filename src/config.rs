@@ -104,6 +104,7 @@ impl ConfigManager {
     }
 
     /// 获取上游配置
+    #[allow(dead_code)]
     pub async fn get_upstream(&self, upstream_name: &str) -> Option<crate::models::UpstreamConfig> {
         let guard = self.inner.read().await;
         guard.config.upstreams.iter()

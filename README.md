@@ -69,6 +69,7 @@ aliases:
 ### OpenAI 兼容 API
 
 - `POST /v1/chat/completions` - 聊天补全
+- `POST /v1/responses` - Responses API（需上游支持）
 - `GET /v1/models` - 模型列表
 
 ### WebUI
@@ -96,6 +97,19 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 curl http://localhost:3000/v1/models
 ```
 
+### 调用 Responses API
+
+```bash
+curl -X POST http://localhost:3000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen",
+    "input": "Hello"
+  }'
+```
+
+> 注意：Responses API 需要上游服务支持。如果上游仅支持 Chat Completions 协议，响应格式可能不符合 Responses API 规范。
+
 ## 项目结构
 
 ```
@@ -116,7 +130,6 @@ llm-wrapper/
 ## 待办事项
 
 - [ ] Docker 部署支持
-- [ ] responses 端点
 - [ ] 上游健康检查
 - [ ] 负载均衡策略
 - [ ] 请求限流

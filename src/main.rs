@@ -31,6 +31,7 @@ impl DebugDataStore {
         guard.clone()
     }
 
+    #[allow(dead_code)]
     async fn update_stream_chunk(&self, chunk: &str) {
         let mut guard = self.data.write().await;
         if let Some(ref mut info) = *guard {
@@ -43,6 +44,7 @@ impl DebugDataStore {
         }
     }
 
+    #[allow(dead_code)]
     async fn clear(&self) {
         let mut guard = self.data.write().await;
         *guard = None;
@@ -90,6 +92,7 @@ async fn main() -> std::io::Result<()> {
             .route("/api/debug", web::delete().to(clear_debug_data))
             // API v1 路由
             .route("/v1/chat/completions", web::post().to(chat_completions))
+            .route("/v1/responses", web::post().to(responses))
             .route("/v1/models/", web::get().to(list_models))
             .route("/v1/models", web::get().to(list_models))
             // WebUI
@@ -164,6 +167,68 @@ async fn chat_completions(
                     "debug": debug_info
                 }));
             }
+            resp
+        }
+        Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
+    }
+}
+
+async fn responses(
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+    req: actix_web::HttpRequest,
+) -> HttpResponse {
+    use crate::proxy::Proxy;
+    use crate::router::ModelRouter;
+
+    // 检查是否启用调试模式
+    let debug_mode = req
+        .headers()
+        .get("X-Debug-Mode")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    // 获取模型名
+    let model = match body.get("model").and_then(|m| m.as_str()) {
+        Some(m) => m.to_string(),
+        None => return HttpResponse::BadRequest().json(json!({"error": {"message": "缺少 model 参数"}})),
+    };
+
+    let router = ModelRouter::new(state.config.clone());
+    let proxy = Proxy::new();
+
+    // 查找路由
+    let route = match router.route(&model).await {
+        Some(r) => r,
+        None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
+    };
+
+    // 转换 Responses API 输入格式为 Chat Completions 格式
+    let chat_body = convert_responses_to_chat(body.into_inner());
+
+    // 代理请求（调试数据在 proxy 内部保存）
+    match proxy.proxy_request_with_debug(
+        &route,
+        "POST".to_string(),
+        "/v1/chat/completions".to_string(),
+        chat_body,
+        Some(state.debug_data.data.clone()),
+    ).await {
+        Ok(resp) => {
+            if debug_mode {
+                // 返回调试信息（只返回调试数据）
+                let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
+                    client_request: serde_json::Value::Null,
+                    upstream_request: serde_json::Value::Null,
+                    upstream_response: serde_json::Value::Null,
+                });
+                return HttpResponse::Ok().json(json!({
+                    "debug": debug_info
+                }));
+            }
+            // 直接透传上游响应
+            // 注意：上游需要支持 Responses API 格式
             resp
         }
         Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
@@ -260,6 +325,100 @@ async fn webui_index() -> HttpResponse {
     HttpResponse::Found()
         .append_header(("Location", "/webui/index.html"))
         .finish()
+}
+
+/// 将 Responses API 请求格式转换为 Chat Completions 格式
+fn convert_responses_to_chat(body: serde_json::Value) -> serde_json::Value {
+    if let serde_json::Value::Object(mut map) = body {
+        // 提取 input 字段并转换为 messages
+        let input = map.remove("input");
+
+        if let Some(input) = input {
+            let messages = convert_input_to_messages(input);
+            map.insert("messages".to_string(), messages);
+        }
+
+        // 移除 Responses API 特有字段（上游可能不支持）
+        map.remove("instructions");
+        map.remove("previous_response_id");
+        map.remove("tool_choice");
+        map.remove("tools");
+        map.remove("store");
+        map.remove("metadata");
+        map.remove("truncation");
+        map.remove("text");
+        map.remove("reasoning");
+        map.remove("prompt_cache_key");
+        map.remove("prompt_cache_retention");
+        map.remove("max_tool_calls");
+
+        serde_json::Value::Object(map)
+    } else {
+        body
+    }
+}
+
+/// 将 input 字段转换为 messages 数组
+fn convert_input_to_messages(input: serde_json::Value) -> serde_json::Value {
+    // 简单字符串
+    if let serde_json::Value::String(s) = input {
+        return json!([{
+            "role": "user",
+            "content": s
+        }]);
+    }
+
+    // 消息数组
+    if let serde_json::Value::Array(arr) = input {
+        let messages: serde_json::Value = serde_json::to_value(
+            arr.iter()
+                .map(|item| convert_input_item_to_message(item))
+                .collect::<Vec<_>>()
+        ).unwrap_or_else(|_| json!([]));
+        return messages;
+    }
+
+    // 其他情况返回空数组
+    json!([])
+}
+
+/// 将单个 input item 转换为 message
+fn convert_input_item_to_message(item: &serde_json::Value) -> serde_json::Value {
+    if let serde_json::Value::Object(obj) = item {
+        let item_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("message");
+
+        match item_type {
+            "message" => {
+                let role = obj.get("role").and_then(|v| v.as_str()).unwrap_or("user");
+                let content = obj.get("content").cloned().unwrap_or_else(|| json!(""));
+                json!({
+                    "role": role,
+                    "content": content
+                })
+            }
+            "function_call_output" => {
+                let call_id = obj.get("call_id").cloned().unwrap_or_default();
+                let output = obj.get("output").cloned().unwrap_or_default();
+                json!({
+                    "role": "function",
+                    "name": call_id,
+                    "content": output
+                })
+            }
+            _ => {
+                // 其他类型暂时忽略
+                json!({
+                    "role": "user",
+                    "content": ""
+                })
+            }
+        }
+    } else {
+        json!({
+            "role": "user",
+            "content": item
+        })
+    }
 }
 
 use serde_json::json;

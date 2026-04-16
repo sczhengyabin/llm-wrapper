@@ -44,6 +44,7 @@ fn default_true() -> bool {
 }
 
 impl UpstreamConfig {
+    #[allow(dead_code)]
     pub fn new(name: String, base_url: String) -> Self {
         Self {
             name: name.clone(),
@@ -52,10 +53,9 @@ impl UpstreamConfig {
             enabled: true,
         }
     }
-}
 
-impl UpstreamConfig {
     /// 获取上游 ID（现在就是 name）
+    #[allow(dead_code)]
     pub fn id(&self) -> &str {
         &self.name
     }
@@ -76,6 +76,7 @@ pub struct ModelAlias {
 }
 
 impl ModelAlias {
+    #[allow(dead_code)]
     pub fn new(alias: String, target_model: String, upstream: String) -> Self {
         Self {
             alias,
@@ -98,12 +99,14 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 /// OpenAI Chat Completion 请求模型
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionRequest {
     pub model: String,
@@ -128,6 +131,7 @@ pub struct ChatCompletionRequest {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
@@ -135,6 +139,7 @@ pub struct Message {
 }
 
 /// OpenAI Model 响应模型
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelResponse {
     pub id: String,
