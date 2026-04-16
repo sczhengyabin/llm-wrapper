@@ -5,8 +5,10 @@ WORKDIR /app
 
 # 安装构建依赖
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    libssl-dev \
     cmake \
-    clang \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖缓存文件，利用 Docker 层缓存
