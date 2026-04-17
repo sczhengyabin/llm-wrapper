@@ -23,7 +23,7 @@ impl Proxy {
     pub fn new() -> Self {
         Self {
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(300))
+                .timeout(std::time::Duration::from_secs(1200))
                 .build()
                 .expect("无法创建 HTTP 客户端"),
         }
