@@ -37,6 +37,7 @@ impl Proxy {
         path: String,
         body: serde_json::Value,
         debug_data: Option<Arc<RwLock<Option<DebugInfo>>>>,
+        stream_hub: Option<Arc<tokio::sync::broadcast::Sender<String>>>,
     ) -> Result<actix_web::HttpResponse, String> {
         // 保存客户端原始请求
         let client_request = body.clone();
@@ -103,10 +104,10 @@ impl Proxy {
             .to_string();
 
         if is_stream || content_type.contains("text/event-stream") {
-            // 流式响应 - 直接流式代理，同时收集调试数据
+            // 流式响应 - 直接流式代理，同时通过 SSE 广播到前端
             use actix_web::body::BodyStream;
 
-            // 保存初始调试数据
+            // 保存初始调试数据（不包含响应内容）
             let initial_debug_info = DebugInfo {
                 client_request: client_request.clone(),
                 endpoint: endpoint.clone(),
@@ -118,28 +119,25 @@ impl Proxy {
                 debug_store.write().await.replace(initial_debug_info);
             }
 
-            // 创建流并收集内容用于调试
-            let debug_store_for_collection = debug_data.clone();
+            // 获取 stream_hub 用于广播
+            let stream_hub_clone = stream_hub.clone();
+
+            // 流式代理，同时广播 chunk
             let stream = response.bytes_stream()
                 .map(move |item| {
+                    // 先广播到 SSE 前端（不持有 item 的引用）
                     if let Ok(chunk) = &item {
-                        // 收集内容用于调试
-                        if let Ok(text) = String::from_utf8(chunk.to_vec()) {
-                            let debug_store = debug_store_for_collection.clone();
-                            tokio::spawn(async move {
-                                if let Some(ref store) = debug_store {
-                                    let mut guard = store.write().await;
-                                    if let Some(ref mut info) = *guard {
-                                        let current = match &info.upstream_response {
-                                            serde_json::Value::String(s) => s.clone(),
-                                            _ => String::new(),
-                                        };
-                                        info.upstream_response = serde_json::Value::String(current + &text);
-                                    }
-                                }
-                            });
+                        if let Ok(text) = std::str::from_utf8(chunk) {
+                            if let Some(ref hub) = stream_hub_clone {
+                                let hub = hub.clone();
+                                let text = text.to_string();
+                                tokio::spawn(async move {
+                                    let _ = hub.send(text);
+                                });
+                            }
                         }
                     }
+                    // 返回原始 item
                     item.map(|chunk| chunk)
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
                 });

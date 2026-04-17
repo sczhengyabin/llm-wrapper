@@ -6,17 +6,20 @@ use llm_wrapper::router;
 use llm_wrapper::proxy::DebugInfo;
 
 use actix_files as fs;
-use actix_web::{web, App, HttpServer, HttpResponse, middleware};
+use actix_web::{web, App, HttpServer, HttpResponse, middleware, Error};
 use config::ConfigManager;
 use models::AppConfig;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tracing::info;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use futures::{Stream, StreamExt};
+use std::pin::Pin;
 
 struct AppState {
     config: ConfigManager,
     debug_data: web::Data<DebugDataStore>,
+    stream_hub: web::Data<DebugStreamHub>,
 }
 
 /// 调试数据存储
@@ -31,23 +34,34 @@ impl DebugDataStore {
         guard.clone()
     }
 
-    #[allow(dead_code)]
-    async fn update_stream_chunk(&self, chunk: &str) {
-        let mut guard = self.data.write().await;
-        if let Some(ref mut info) = *guard {
-            // 追加流式响应 chunk
-            let current = match &info.upstream_response {
-                serde_json::Value::String(s) => s.clone(),
-                _ => String::new(),
-            };
-            info.upstream_response = serde_json::Value::String(current + chunk);
+}
+
+/// 调试流式广播中心
+#[derive(Clone)]
+struct DebugStreamHub {
+    sender: Arc<tokio::sync::broadcast::Sender<String>>,
+}
+
+impl DebugStreamHub {
+    fn new() -> Self {
+        let (sender, _) = tokio::sync::broadcast::channel(100);
+        Self {
+            sender: Arc::new(sender),
         }
     }
 
-    #[allow(dead_code)]
-    async fn clear(&self) {
-        let mut guard = self.data.write().await;
-        *guard = None;
+    /// 创建 SSE 流
+    fn create_stream(&self) -> Pin<Box<dyn Stream<Item = Result<actix_web::web::Bytes, Error>> + Send>> {
+        let receiver = self.sender.subscribe();
+        let stream = tokio_stream::wrappers::BroadcastStream::new(receiver)
+            .map(|result| {
+                match result {
+                    Ok(chunk) => Ok(actix_web::web::Bytes::from(chunk)),
+                    Err(_) => Ok(actix_web::web::Bytes::from("data: {\"error\":\"connection reset\"}\n\n")),
+                }
+            })
+            .boxed();
+        stream
     }
 }
 
@@ -67,9 +81,11 @@ async fn main() -> std::io::Result<()> {
     let config_manager = ConfigManager::new(&config_path).await.expect("无法加载配置");
 
     let debug_store = web::Data::new(DebugDataStore::default());
+    let stream_hub = web::Data::new(DebugStreamHub::new());
     let state = web::Data::new(AppState {
         config: config_manager,
         debug_data: debug_store.clone(),
+        stream_hub: stream_hub.clone(),
     });
 
     // 启动服务器
@@ -90,6 +106,7 @@ async fn main() -> std::io::Result<()> {
             .route("/api/upstream-models", web::get().to(get_upstream_models))
             .route("/api/debug", web::get().to(get_debug_data))
             .route("/api/debug", web::delete().to(clear_debug_data))
+            .route("/api/debug/stream", web::get().to(debug_stream))
             // API v1 路由
             .route("/v1/chat/completions", web::post().to(chat_completions))
             .route("/v1/responses", web::post().to(responses))
@@ -155,6 +172,7 @@ async fn chat_completions(
         "/v1/chat/completions".to_string(),
         body.into_inner(),
         Some(state.debug_data.data.clone()),
+        Some(state.stream_hub.sender.clone()),
     ).await {
         Ok(resp) => {
             if debug_mode {
@@ -215,6 +233,7 @@ async fn responses(
         "/v1/responses".to_string(),
         original_body,
         Some(state.debug_data.data.clone()),
+        Some(state.stream_hub.sender.clone()),
     ).await {
         Ok(resp) => {
             if debug_mode {
@@ -286,6 +305,7 @@ async fn messages(
         "/v1/messages".to_string(),
         original_body,
         Some(state.debug_data.data.clone()),
+        Some(state.stream_hub.sender.clone()),
     ).await {
         Ok(resp) => {
             if debug_mode {
@@ -332,6 +352,17 @@ async fn get_debug_data(state: web::Data<AppState>) -> HttpResponse {
 async fn clear_debug_data(state: web::Data<AppState>) -> HttpResponse {
     state.debug_data.data.write().await.take();
     HttpResponse::Ok().json(json!({"success": true}))
+}
+
+/// SSE 流式调试端点
+async fn debug_stream(
+    state: web::Data<AppState>,
+) -> impl actix_web::Responder {
+    let stream = state.stream_hub.create_stream();
+
+    actix_web::HttpResponse::Ok()
+        .content_type("text/event-stream")
+        .body(actix_web::body::BodyStream::new(stream))
 }
 
 async fn list_models(state: web::Data<AppState>) -> HttpResponse {

@@ -584,7 +584,10 @@
             </div>
         </div>
         <div style="padding: 10px; border-top: 1px solid #3d3d3d; display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: #666; font-size: 12px;">调试数据仅保存在当前页面</span>
+            <label style="color: #666; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="streamMonitorToggle" onchange="toggleStreamMonitor()">
+                监听流式响应
+            </label>
             <button class="debug-clear" onclick="clearDebugData()">清空数据</button>
         </div>
     </div>
@@ -678,6 +681,9 @@
         });
 
         let debugPollInterval = null;
+        let sseStream = null;
+        let accumulatedResponse = '';
+        let streamMonitorEnabled = false;
 
         // 切换调试面板
         function toggleDebugPanel() {
@@ -687,15 +693,41 @@
             if (panel.classList.contains('active')) {
                 // 打开时立即获取数据
                 fetchDebugData();
+                // 如果开启了监听，建立 SSE 连接
+                if (streamMonitorEnabled) {
+                    connectSSE();
+                }
                 // 开始轮询更新
                 if (!debugPollInterval) {
-                    debugPollInterval = setInterval(fetchDebugData, 200);
+                    debugPollInterval = setInterval(fetchDebugData, 500);
                 }
             } else {
-                // 关闭时停止轮询
+                // 关闭时停止轮询和 SSE 连接
                 if (debugPollInterval) {
                     clearInterval(debugPollInterval);
                     debugPollInterval = null;
+                }
+                if (sseStream) {
+                    sseStream.close();
+                    sseStream = null;
+                }
+            }
+        }
+
+        // 切换流式监听开关
+        function toggleStreamMonitor() {
+            const checkbox = document.getElementById('streamMonitorToggle');
+            streamMonitorEnabled = checkbox.checked;
+
+            if (streamMonitorEnabled) {
+                // 开启时建立 SSE 连接
+                accumulatedResponse = '';
+                connectSSE();
+            } else {
+                // 关闭时断开 SSE 连接
+                if (sseStream) {
+                    sseStream.close();
+                    sseStream = null;
                 }
             }
         }
@@ -712,11 +744,25 @@
         }
 
         // 清空调试数据
-        function clearDebugData() {
+        async function clearDebugData() {
+            // 断开 SSE 连接，停止接收新数据
+            if (sseStream) {
+                sseStream.close();
+                sseStream = null;
+            }
+            // 清空前端积累
+            accumulatedResponse = '';
+            // 清空本地状态
             debugData = { client: null, upstream: null, response: null };
             document.getElementById('debugClientJson').textContent = '{等待请求...}';
             document.getElementById('debugUpstreamJson').textContent = '{等待请求...}';
             document.getElementById('debugResponseJson').textContent = '{等待响应...}';
+            // 调用后端 API 清空调试数据
+            try {
+                await fetch('/api/debug', { method: 'DELETE' });
+            } catch (error) {
+                console.error('清空调试数据失败:', error);
+            }
         }
 
         // 设置调试数据（供 API 调用使用）
@@ -732,7 +778,7 @@
             }
         }
 
-        // 从后端获取调试数据
+        // 从后端获取调试数据（非流式部分）
         async function fetchDebugData() {
             try {
                 const response = await fetch('/api/debug');
@@ -754,29 +800,55 @@
                     upstreamEl.textContent = '{等待请求...}';
                 }
 
-                // 更新上游响应
+                // 更新上游响应（非流式）
                 const responseEl = document.getElementById('debugResponseJson');
-                if (data.upstream_response) {
+                if (data.upstream_response && typeof data.upstream_response === 'object') {
+                    // 非流式响应
                     responseEl.textContent = JSON.stringify(data.upstream_response, null, 2);
-                } else {
-                    responseEl.textContent = '{等待响应...}';
+                } else if (!sseStream) {
+                    // 没有 SSE 连接时显示原始数据
+                    if (data.upstream_response) {
+                        responseEl.textContent = typeof data.upstream_response === 'object'
+                            ? JSON.stringify(data.upstream_response, null, 2)
+                            : data.upstream_response;
+                    } else {
+                        responseEl.textContent = '{等待响应...}';
+                    }
                 }
+                // 流式响应由 SSE 实时更新，不在这里处理
             } catch (error) {
                 console.error('获取调试数据失败:', error);
             }
         }
 
-        // 清空调试数据（调用后端 API）
-        async function clearDebugData() {
-            try {
-                await fetch('/api/debug', { method: 'DELETE' });
-                debugData = { client: null, upstream: null, response: null };
-                document.getElementById('debugClientJson').textContent = '{等待请求...}';
-                document.getElementById('debugUpstreamJson').textContent = '{等待请求...}';
-                document.getElementById('debugResponseJson').textContent = '{等待响应...}';
-            } catch (error) {
-                console.error('清空调试数据失败:', error);
-            }
+        // 建立 SSE 连接接收流式响应
+        function connectSSE() {
+            if (sseStream) return; // 已存在连接
+
+            sseStream = new EventSource('/api/debug/stream');
+
+            sseStream.onmessage = (event) => {
+                // 累积接收到的 chunk（前端积累）
+                accumulatedResponse += event.data;
+
+                // 更新显示
+                const responseEl = document.getElementById('debugResponseJson');
+                if (responseEl) {
+                    // 尝试解析为 JSON
+                    try {
+                        const parsed = JSON.parse(accumulatedResponse);
+                        responseEl.textContent = JSON.stringify(parsed, null, 2);
+                    } catch (e) {
+                        // 还不是完整 JSON，显示原始文本
+                        responseEl.textContent = accumulatedResponse;
+                    }
+                }
+            };
+
+            sseStream.onerror = (error) => {
+                // SSE 错误处理（可能是连接正常关闭）
+                console.log('SSE 连接结束');
+            };
         }
 
         // 加载配置
