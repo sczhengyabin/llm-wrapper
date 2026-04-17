@@ -1215,12 +1215,12 @@
                 if (response.ok) {
                     const data = await response.json();
                     const models = (data.data || []).map(m => m.id).filter(id => id);
-                    upstreamModelsCache[upstream.id] = models;
+                    upstreamModelsCache[upstream.name] = models;
                 } else {
-                    upstreamModelsCache[upstream.id] = [];
+                    upstreamModelsCache[upstream.name] = [];
                 }
             } catch (error) {
-                upstreamModelsCache[upstream.id] = [];
+                upstreamModelsCache[upstream.name] = [];
             }
         }
 
