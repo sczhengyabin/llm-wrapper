@@ -11,12 +11,12 @@ RUN apt-get update && apt-get install -y \
     cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖缓存文件，利用 Docker 层缓存
+# 先复制依赖描述文件，利用 Docker 层缓存依赖下载和编译
 COPY Cargo.toml Cargo.lock ./
 RUN cargo fetch || true
 
-# 复制源代码
-COPY . .
+# 复制源代码（只有代码变更时才会重编）
+COPY src ./src
 
 # 构建 release 版本
 RUN cargo build --release && \
