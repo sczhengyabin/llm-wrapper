@@ -161,6 +161,7 @@ async fn chat_completions(
                 // 返回调试信息（只返回调试数据）
                 let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
                     client_request: serde_json::Value::Null,
+                    endpoint: String::new(),
                     upstream_request: serde_json::Value::Null,
                     upstream_response: serde_json::Value::Null,
                 });
@@ -220,6 +221,7 @@ async fn responses(
                 // 返回调试信息（只返回调试数据）
                 let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
                     client_request: serde_json::Value::Null,
+                    endpoint: String::new(),
                     upstream_request: serde_json::Value::Null,
                     upstream_response: serde_json::Value::Null,
                 });
@@ -290,6 +292,7 @@ async fn messages(
                 // 返回调试信息（只返回调试数据）
                 let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
                     client_request: serde_json::Value::Null,
+                    endpoint: String::new(),
                     upstream_request: serde_json::Value::Null,
                     upstream_response: serde_json::Value::Null,
                 });

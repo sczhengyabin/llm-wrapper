@@ -9,6 +9,7 @@ use futures::StreamExt;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DebugInfo {
     pub client_request: serde_json::Value,
+    pub endpoint: String,
     pub upstream_request: serde_json::Value,
     pub upstream_response: serde_json::Value,
 }
@@ -39,6 +40,9 @@ impl Proxy {
     ) -> Result<actix_web::HttpResponse, String> {
         // 保存客户端原始请求
         let client_request = body.clone();
+
+        // 保存端点
+        let endpoint = path.clone();
 
         // 构建上游 URL
         let upstream_url = format!("{}{}", route.upstream_base_url, path);
@@ -105,6 +109,7 @@ impl Proxy {
             // 保存初始调试数据
             let initial_debug_info = DebugInfo {
                 client_request: client_request.clone(),
+                endpoint: endpoint.clone(),
                 upstream_request: upstream_request.clone(),
                 upstream_response: serde_json::Value::Null,
             };
@@ -164,6 +169,7 @@ impl Proxy {
 
             let debug_info = DebugInfo {
                 client_request,
+                endpoint,
                 upstream_request,
                 upstream_response,
             };
