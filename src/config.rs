@@ -10,6 +10,7 @@ use notify::Watcher;
 #[derive(Clone)]
 pub struct ConfigManager {
     inner: Arc<RwLock<ConfigManagerInner>>,
+    runtime_handle: Arc<tokio::runtime::Handle>,
 }
 
 struct ConfigManagerInner {
@@ -27,8 +28,11 @@ impl ConfigManager {
             config_path: config_path.to_string(),
         };
 
+        let runtime_handle = tokio::runtime::Handle::current();
+
         let manager = Self {
             inner: Arc::new(RwLock::new(inner)),
+            runtime_handle: Arc::new(runtime_handle),
         };
 
         // 启动文件监听
@@ -59,6 +63,7 @@ impl ConfigManager {
     /// 启动文件监听器
     fn start_file_watcher(&self, config_path: String) {
         let manager = self.clone();
+        let handle = self.runtime_handle.clone();
 
         std::thread::spawn(move || {
             let (tx, rx) = std::sync::mpsc::channel();
@@ -80,8 +85,9 @@ impl ConfigManager {
                     Ok(Ok(event)) if event.kind.is_modify() || event.kind.is_create() => {
                         info!("配置文件发生变化，重新加载...");
                         let manager = manager.clone();
+                        let handle = handle.clone();
                         let path = config_path.clone();
-                        tokio::spawn(async move {
+                        handle.spawn(async move {
                             if let Err(e) = manager.reload_from_file(&path).await {
                                 warn!("重新加载配置文件失败：{}", e);
                             }
