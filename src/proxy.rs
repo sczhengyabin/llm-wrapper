@@ -52,7 +52,7 @@ impl Proxy {
         // 构建请求体
         let mut request_body = body;
         // 应用参数覆盖
-        self.apply_param_overrides(&mut request_body, route);
+        apply_param_overrides_inner(&mut request_body, route);
 
         // 保存上游请求体（调试用）- 总是保存，不依赖 debug_mode
         let upstream_request = request_body.clone();
@@ -182,35 +182,18 @@ impl Proxy {
             Ok(resp_builder.body(body_bytes.to_vec()))
         }
     }
+}
 
-    /// 应用参数覆盖到请求体
-    fn apply_param_overrides(
-        &self,
-        body: &mut serde_json::Value,
-        route: &RouteResult,
-    ) {
-        if let serde_json::Value::Object(ref mut map) = body {
-            // 先应用 default 参数（只有当用户没有设置时才应用）
-            for (key, value) in &route.default_params {
-                if !map.contains_key(key) {
-                    debug!("应用默认参数：{} = {}", key, value);
-                    // 如果参数名是 extra_body，将其内容展开到请求体顶层
-                    if key == "extra_body" {
-                        if let serde_json::Value::Object(extra_body_map) = value {
-                            for (extra_key, extra_value) in extra_body_map {
-                                debug!("展开 extra_body 参数：{} = {}", extra_key, extra_value);
-                                map.insert(extra_key.clone(), extra_value.clone());
-                            }
-                        }
-                    } else {
-                        map.insert(key.clone(), value.clone());
-                    }
-                }
-            }
-
-            // 再应用 override 参数（强制覆盖）
-            for (key, value) in &route.override_params {
-                debug!("强制覆盖参数：{} = {}", key, value);
+/// 应用参数覆盖到请求体（提取为独立函数供测试使用）
+pub fn apply_param_overrides_inner(
+    body: &mut serde_json::Value,
+    route: &RouteResult,
+) {
+    if let serde_json::Value::Object(ref mut map) = body {
+        // 先应用 default 参数（只有当用户没有设置时才应用）
+        for (key, value) in &route.default_params {
+            if !map.contains_key(key) {
+                debug!("应用默认参数：{} = {}", key, value);
                 // 如果参数名是 extra_body，将其内容展开到请求体顶层
                 if key == "extra_body" {
                     if let serde_json::Value::Object(extra_body_map) = value {
@@ -223,10 +206,26 @@ impl Proxy {
                     map.insert(key.clone(), value.clone());
                 }
             }
-
-            // 确保 model 字段使用目标模型
-            map.insert("model".to_string(), serde_json::Value::String(route.target_model.clone()));
         }
+
+        // 再应用 override 参数（强制覆盖）
+        for (key, value) in &route.override_params {
+            debug!("强制覆盖参数：{} = {}", key, value);
+            // 如果参数名是 extra_body，将其内容展开到请求体顶层
+            if key == "extra_body" {
+                if let serde_json::Value::Object(extra_body_map) = value {
+                    for (extra_key, extra_value) in extra_body_map {
+                        debug!("展开 extra_body 参数：{} = {}", extra_key, extra_value);
+                        map.insert(extra_key.clone(), extra_value.clone());
+                    }
+                }
+            } else {
+                map.insert(key.clone(), value.clone());
+            }
+        }
+
+        // 确保 model 字段使用目标模型
+        map.insert("model".to_string(), serde_json::Value::String(route.target_model.clone()));
     }
 }
 

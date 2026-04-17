@@ -1,9 +1,9 @@
-mod config;
-mod models;
-mod proxy;
-mod router;
+use llm_wrapper::config;
+use llm_wrapper::models;
+use llm_wrapper::proxy;
+use llm_wrapper::router;
 
-use crate::proxy::DebugInfo;
+use llm_wrapper::proxy::DebugInfo;
 
 use actix_files as fs;
 use actix_web::{web, App, HttpServer, HttpResponse, middleware};

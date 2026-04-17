@@ -178,6 +178,29 @@ llm-wrapper/
 └── README.md
 ```
 
+## 单元测试
+
+运行所有测试：
+
+```bash
+cargo test
+```
+
+运行特定模块测试：
+
+```bash
+cargo test router      # 路由匹配测试
+cargo test proxy       # 参数覆盖测试
+cargo test config      # 配置管理测试
+cargo test models      # 数据模型测试
+```
+
+**测试覆盖模块**：
+- `router.rs` - 8 个测试用例：路由匹配、参数覆盖构建
+- `proxy.rs` - 7 个测试用例：override/default 模式、extra_body 展开
+- `config.rs` - 5 个测试用例：配置加载/保存、热更新
+- `models.rs` - 10 个测试用例：序列化/反序列化
+
 ## 待办事项
 
 - [x] Docker 部署支持

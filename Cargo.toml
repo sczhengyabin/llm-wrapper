@@ -3,6 +3,13 @@ name = "llm-wrapper"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "llm-wrapper"
+path = "src/main.rs"
+
 [dependencies]
 # Web framework
 actix-web = "4"
@@ -33,6 +40,9 @@ notify = "8.0"
 
 # UUID for IDs
 uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Testing
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

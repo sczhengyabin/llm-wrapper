@@ -1,0 +1,137 @@
+use llm_wrapper::models::*;
+
+#[test]
+fn test_override_mode_serialization() {
+    let override_mode = OverrideMode::Override;
+    let serialized = serde_json::to_string(&override_mode).unwrap();
+    assert_eq!(serialized, "\"override\"");
+
+    let default_mode = OverrideMode::Default;
+    let serialized = serde_json::to_string(&default_mode).unwrap();
+    assert_eq!(serialized, "\"default\"");
+}
+
+#[test]
+fn test_override_mode_deserialization() {
+    let mode: OverrideMode = serde_json::from_str("\"override\"").unwrap();
+    assert_eq!(mode, OverrideMode::Override);
+
+    let mode: OverrideMode = serde_json::from_str("\"default\"").unwrap();
+    assert_eq!(mode, OverrideMode::Default);
+}
+
+#[test]
+fn test_param_override_serialization() {
+    let param_override = ParamOverride {
+        key: "temperature".to_string(),
+        value: serde_json::json!(0.7),
+        mode: OverrideMode::Default,
+    };
+
+    let serialized = serde_json::to_string(&param_override).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+
+    assert_eq!(parsed["key"], "temperature");
+    assert_eq!(parsed["value"], serde_json::json!(0.7));
+    assert_eq!(parsed["mode"], "default");
+}
+
+#[test]
+fn test_param_override_deserialization() {
+    let json = r#"{
+        "key": "temperature",
+        "value": 0.9,
+        "mode": "override"
+    }"#;
+
+    let param_override: ParamOverride = serde_json::from_str(json).unwrap();
+
+    assert_eq!(param_override.key, "temperature");
+    assert_eq!(param_override.value, serde_json::json!(0.9));
+    assert_eq!(param_override.mode, OverrideMode::Override);
+}
+
+#[test]
+fn test_model_alias_new() {
+    let alias = ModelAlias::new(
+        "my-alias".to_string(),
+        "gpt-4".to_string(),
+        "test-upstream".to_string(),
+    );
+
+    assert_eq!(alias.alias, "my-alias");
+    assert_eq!(alias.target_model, "gpt-4");
+    assert_eq!(alias.upstream, "test-upstream");
+    assert!(alias.param_overrides.is_empty());
+}
+
+#[test]
+fn test_upstream_config_new() {
+    let upstream = UpstreamConfig::new(
+        "test-upstream".to_string(),
+        "http://localhost:8080".to_string(),
+    );
+
+    assert_eq!(upstream.name, "test-upstream");
+    assert_eq!(upstream.base_url, "http://localhost:8080");
+    assert!(upstream.api_key.is_none());
+    assert!(upstream.enabled);
+}
+
+#[test]
+fn test_upstream_config_id() {
+    let upstream = UpstreamConfig::new(
+        "test-upstream".to_string(),
+        "http://localhost:8080".to_string(),
+    );
+
+    assert_eq!(upstream.id(), "test-upstream");
+}
+
+#[test]
+fn test_app_config_new() {
+    let config = AppConfig::new();
+
+    assert!(config.upstreams.is_empty());
+    assert!(config.aliases.is_empty());
+}
+
+#[test]
+fn test_app_config_default() {
+    let config = AppConfig::default();
+
+    assert!(config.upstreams.is_empty());
+    assert!(config.aliases.is_empty());
+}
+
+#[test]
+fn test_chat_completion_request_serialization() {
+    use std::collections::HashMap;
+
+    let request = ChatCompletionRequest {
+        model: "gpt-4".to_string(),
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+        }],
+        stream: false,
+        temperature: Some(0.7),
+        top_p: None,
+        max_tokens: Some(100),
+        stop: None,
+        frequency_penalty: None,
+        presence_penalty: None,
+        seed: None,
+        extra: HashMap::new(),
+    };
+
+    let serialized = serde_json::to_string_pretty(&request).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+
+    assert_eq!(parsed["model"], "gpt-4");
+    assert_eq!(parsed["messages"][0]["role"], "user");
+    assert_eq!(parsed["messages"][0]["content"], "Hello");
+    assert_eq!(parsed["temperature"], 0.7);
+    assert!(parsed["top_p"].is_null());
+    assert_eq!(parsed["max_tokens"], 100);
+}

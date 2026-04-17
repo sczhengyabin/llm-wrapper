@@ -126,7 +126,7 @@ impl ConfigManager {
 }
 
 /// 从文件加载配置
-fn load_config(path: &str) -> Result<AppConfig> {
+pub fn load_config(path: &str) -> Result<AppConfig> {
     if Path::new(path).exists() {
         let content = std::fs::read_to_string(path)?;
         let config: AppConfig = serde_yaml::from_str(&content)?;
