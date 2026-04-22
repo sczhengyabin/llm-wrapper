@@ -31,9 +31,9 @@ impl ModelRouter {
     pub async fn route(&self, model: &str) -> Option<RouteResult> {
         let config = self.config.get_config().await;
 
-        // 查找别名
+        // 查找别名（只匹配 alias 字段，target_model 不参与路由）
         if let Some(alias) = config.aliases.iter().find(|a| {
-            a.alias == model || a.target_model == model
+            a.alias == model
         }) {
             return self.build_route_for_alias(alias, &config).await;
         }
