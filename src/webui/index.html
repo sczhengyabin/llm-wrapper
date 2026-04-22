@@ -563,11 +563,88 @@
         .refresh-btn {
             min-width: 80px;
         }
+        /* 聚合模型表格 */
+        .models-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        .models-table th,
+        .models-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .models-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #dee2e6;
+        }
+        .models-table tr:hover {
+            background: #f8f9fa;
+        }
+        .models-table .alias-name {
+            font-family: monospace;
+            color: #004085;
+            background: #e7f3ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .models-table .upstream-name {
+            font-family: monospace;
+            color: #155724;
+            background: #d4edda;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .models-table .source-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .models-table .source-tag.auto {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .models-table .source-tag.manual {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+        .models-table .target-model {
+            color: #666;
+            font-size: 12px;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .upstream-group-header {
+            background: #f0f0f0;
+            font-weight: 600;
+            color: #333;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>LLM Wrapper 配置</h1>
+
+        <!-- 聚合模型列表 -->
+        <div class="section">
+            <h2>聚合模型列表</h2>
+            <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                所有可通过 <code>/v1/models</code> API 获取的模型别名（按上游分组）
+            </p>
+            <div id="aggregatedModelsTable">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
 
         <!-- 上游配置 -->
         <div class="section">
@@ -893,6 +970,7 @@
                 config = await response.json();
                 renderUpstreams();
                 renderAliases();
+                renderAggregatedModels();
                 // 加载所有上游的模型列表（渲染后再加载，不阻塞界面）
                 await loadAllUpstreamModels();
                 renderUpstreams();
@@ -1001,6 +1079,61 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        // 渲染聚合模型列表（按上游分组）
+        function renderAggregatedModels() {
+            const container = document.getElementById('aggregatedModelsTable');
+            if (config.aliases.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无模型别名配置</div>';
+                return;
+            }
+
+            // 按上游分组
+            const grouped = {};
+            config.upstreams.forEach(u => {
+                if (u.enabled) {
+                    grouped[u.name] = [];
+                }
+            });
+
+            config.aliases.forEach(a => {
+                if (grouped[a.upstream]) {
+                    grouped[a.upstream].push(a);
+                }
+            });
+
+            // 构建表格 HTML
+            let html = '<table class="models-table">';
+            html += '<thead><tr><th>Alias 名称</th><th>上游</th><th>目标模型</th><th>来源</th></tr></thead>';
+            html += '<tbody>';
+
+            // 按上游名称排序
+            const sortedUpstreams = Object.keys(grouped).sort();
+
+            sortedUpstreams.forEach(upstreamName => {
+                const aliases = grouped[upstreamName];
+                if (aliases.length === 0) return;
+
+                // 添加上游分组标题行
+                html += `<tr class="upstream-group-header"><td colspan="4">📦 ${escapeHtml(upstreamName)}</td></tr>`;
+
+                aliases.forEach(a => {
+                    const sourceClass = a.source === 'auto' ? 'auto' : 'manual';
+                    const sourceText = a.source === 'auto' ? 'auto' : 'manual';
+                    html += `
+                        <tr>
+                            <td><span class="alias-name">${escapeHtml(a.alias)}</span></td>
+                            <td><span class="upstream-name">${escapeHtml(a.upstream)}</span></td>
+                            <td><span class="target-model" title="${escapeHtml(a.target_model)}">${escapeHtml(a.target_model)}</span></td>
+                            <td><span class="source-tag ${sourceClass}">${sourceText}</span></td>
+                        </tr>
+                    `;
+                });
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
         }
 
         // 上游模态框
