@@ -1031,7 +1031,7 @@
                         <div class="item-info">
                             <div class="item-title">${escapeHtml(u.name)}</div>
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
-                            <div class="item-detail">API Key: ${u.api_key || 'none'}</div>
+                            <div class="item-detail">API Key: ${u.api_key ? (u.api_key.length > 16 ? u.api_key.substring(0, 8) + '******' + u.api_key.substring(u.api_key.length - 8) : u.api_key) : 'none'}</div>
                             ${modelsHtml}
                         </div>
                     </div>
