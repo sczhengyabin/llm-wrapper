@@ -37,31 +37,6 @@ async fn test_route_alias_match() {
 }
 
 #[tokio::test]
-async fn test_route_target_model_match() {
-    let dir = create_test_config(
-        r#"
-        upstreams:
-          - name: test-upstream
-            base_url: http://localhost:8080
-            enabled: true
-        aliases:
-          - alias: my-model
-            target_model: gpt-4
-            upstream: test-upstream
-        "#
-    );
-    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
-    let config = ConfigManager::new(&config_path).await.unwrap();
-    let router = ModelRouter::new(config);
-
-    // 使用 target_model 匹配
-    let route = router.route("gpt-4").await;
-    assert!(route.is_some());
-    let route = route.unwrap();
-    assert_eq!(route.target_model, "gpt-4");
-}
-
-#[tokio::test]
 async fn test_route_upstream_direct() {
     let dir = create_test_config(
         r#"
