@@ -20,6 +20,7 @@ aliases:
     target_model: Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
     upstream: vllm
     param_overrides: []
+    source: manual  # manual: 手动创建，auto: 点击模型标签自动创建
 
   # 别名 2: 带参数覆盖的别名
   - alias: qwen-no-thinking
@@ -36,7 +37,20 @@ aliases:
           chat_template_kwargs:
             enable_thinking: false
         mode: default
+    source: manual
+
+  # Auto Alias 示例（通过 WebUI 点击模型标签自动创建）
+  # - alias: Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
+  #   target_model: Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
+  #   upstream: vllm
+  #   param_overrides: []
+  #   source: auto
 
 # 环境变量
 # CONFIG_PATH: 配置文件路径，默认 config.yaml
 # BIND_ADDR: 绑定地址，默认 0.0.0.0:3000
+
+# 路由规则说明：
+# - 请求中的 model 参数仅匹配 alias 字段
+# - target_model 不参与路由匹配，仅用于转发时替换模型名
+# - 若需支持直接使用上游模型名调用，需创建对应的 auto alias

@@ -11,6 +11,7 @@
 - **YAML 配置**：支持配置文件持久化
 - **单文件 WebUI**：纯 HTML + JS 实现的管理界面
 - **API 密钥脱敏**：管理接口返回的 API 密钥自动脱敏
+- **Auto Alias**：点击上游模型标签一键创建透传别名
 
 ## 快速开始
 
@@ -90,7 +91,18 @@ aliases:
           chat_template_kwargs:
             enable_thinking: false
         mode: default
+    source: manual  # 手动创建的别名
 ```
+
+## 路由规则
+
+- **Alias 匹配**：请求中的 `model` 参数仅匹配 `alias` 字段
+- **Target Model 不参与路由**：`target_model` 仅用于转发时替换模型名，不作为路由匹配条件
+- **Upstream 直接调用**：如果未找到 alias 匹配，且 `model` 与某个启用的上游 `name` 相同，则直接使用该上游
+
+这意味着：
+- `alias: my-model -> target_model: gpt-4` 配置下，必须使用 `model: "my-model"` 调用
+- 若需支持 `model: "gpt-4"` 调用，需要创建 `alias: gpt-4 -> target_model: gpt-4` 的 auto alias
 
 ## API 端点
 
@@ -99,16 +111,51 @@ aliases:
 - `GET /api/config` - 获取当前配置
 - `PUT /api/config` - 更新配置（同时保存到 YAML 文件）
 
+### 上游模型管理
+
+- `GET /api/upstream-models` - 获取所有上游的模型列表
+- `POST /api/upstream-models/alias` - 创建上游模型的 auto alias
+
 ### OpenAI 兼容 API
 
 - `POST /v1/chat/completions` - 聊天补全
 - `POST /v1/responses` - Responses API（需上游支持）
 - `POST /v1/messages` - Anthropic Messages API（需上游支持）
-- `GET /v1/models` - 模型列表
+- `GET /v1/models` - 模型列表（返回所有 alias）
+
+### 调试接口
+
+- `GET /api/debug` - 获取最近一次调试信息
+- `DELETE /api/debug` - 清空调试信息
+- `GET /api/debug/stream` - SSE 流式调试信息
 
 ### WebUI
 
 - `GET /` - WebUI 管理界面
+
+## WebUI 功能
+
+### 聚合模型列表
+
+页面顶端展示所有可通过 `/v1/models` 获取的模型别名，按上游分组。
+
+### 上游模型标签
+
+- **蓝色虚线边框**：可用模型，点击创建 auto alias
+- **绿色实线边框**：已启用 auto alias，点击可删除
+- **红色背景**：alias 名冲突，无法创建
+
+### Auto Alias
+
+Auto alias 是透传别名：`alias = target_model = upstream model name`，无参数覆盖。
+
+**创建方式：**
+- WebUI：点击上游配置卡片中的模型标签
+- API：`POST /api/upstream-models/alias`
+
+**删除方式：**
+- WebUI：点击已启用的绿色模型标签
+- 手动删除 alias
 
 ## 使用示例
 
@@ -129,6 +176,17 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 
 ```bash
 curl http://localhost:3000/v1/models
+```
+
+### 创建 Auto Alias
+
+```bash
+curl -X POST http://localhost:3000/api/upstream-models/alias \
+  -H "Content-Type: application/json" \
+  -d '{
+    "upstream": "qwen-test",
+    "model": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4"
+  }'
 ```
 
 ### 调用 Responses API
@@ -161,3 +219,24 @@ curl -X POST http://localhost:3000/v1/messages \
 
 > 注意：Messages API 需要上游服务支持 Anthropic 协议（如 Anthropic API）。如果上游不支持，将返回 404/405 错误。
 
+## 调试功能
+
+通过 `X-Debug-Mode: true` 请求头启用调试模式，返回完整的请求/响应调试信息：
+
+```bash
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-Debug-Mode: true" \
+  -d '{
+    "model": "qwen",
+    "messages": [
+      {"role": "user", "content": "Hello"}
+    ]
+  }'
+```
+
+响应包含：
+- `client_request`：客户端发送到 Wrapper 的原始请求
+- `endpoint`：调用的端点
+- `upstream_request`：Wrapper 发送到上游的请求（已应用参数覆盖）
+- `upstream_response`：上游返回的响应
