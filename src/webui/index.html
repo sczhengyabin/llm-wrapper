@@ -148,16 +148,18 @@
             font-family: monospace;
             cursor: default;
         }
-        /* 已启用 - 绿色 */
+        /* 已启用 - 绿色，实线边框 */
         .model-tag.enabled {
             background: #d4edda;
             color: #155724;
+            border: 2px solid #28a745;
             cursor: pointer;
         }
-        /* 可点击 - 蓝色 */
+        /* 可点击 - 蓝色，虚线边框 */
         .model-tag.available {
             background: #cce5ff;
             color: #004085;
+            border: 2px dashed #004085;
             cursor: pointer;
         }
         /* 冲突 - 红色 */
@@ -1002,12 +1004,11 @@
                                 const hasConflict = config.aliases.some(a => a.alias === m);
 
                                 let tagClass = 'model-tag available';
-                                let onclickAttr = `addAutoAlias('${u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
+                                let onclickAttr = `toggleAutoAlias('${u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
 
                                 if (existingAlias) {
-                                    // 已有 auto alias，显示绿色
+                                    // 已有 auto alias，显示绿色（实线边框）
                                     tagClass = 'model-tag enabled';
-                                    onclickAttr = null; // 已启用，无需再次点击
                                 } else if (hasConflict) {
                                     // 有冲突，显示红色
                                     tagClass = 'model-tag conflict';
@@ -1357,10 +1358,12 @@
             })();
         }
 
-        function deleteAlias(index) {
+        async function deleteAlias(index) {
             if (!confirm('确定要删除这个别名吗？')) return;
             config.aliases.splice(index, 1);
-            saveConfig();
+            await saveConfig();
+            // 刷新聚合模型列表
+            renderAggregatedModels();
         }
 
         // 参数覆盖
@@ -1501,37 +1504,57 @@
             await Promise.all(promises);
         }
 
-        // 创建 auto alias（通过点击模型标签）
-        async function addAutoAlias(upstreamName, modelName) {
-            // 检查是否有冲突
-            const conflict = config.aliases.some(a => a.alias === modelName);
-            if (conflict) {
-                showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
-                return;
-            }
+        // 切换 auto alias（创建/删除）
+        async function toggleAutoAlias(upstreamName, modelName) {
+            // 检查是否已有 auto alias
+            const existingAlias = config.aliases.find(a =>
+                a.alias === modelName && a.upstream === upstreamName && a.source === 'auto'
+            );
 
-            try {
-                const response = await fetch('/api/upstream-models/alias', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        upstream: upstreamName,
-                        model: modelName
-                    })
-                });
-
-                if (response.ok) {
-                    showStatus(`已创建 auto alias: ${modelName}`, 'success');
-                    // 重新加载配置
-                    await loadConfig();
-                } else if (response.status === 409) {
-                    showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
-                } else {
-                    const err = await response.json();
-                    showStatus('创建失败：' + (err.error || '未知错误'), 'error');
+            if (existingAlias) {
+                // 已存在，删除它
+                try {
+                    const index = config.aliases.indexOf(existingAlias);
+                    if (index > -1) {
+                        config.aliases.splice(index, 1);
+                        await saveConfig();
+                        showStatus(`已删除 auto alias: ${modelName}`, 'success');
+                    }
+                } catch (error) {
+                    showStatus('删除失败：' + error.message, 'error');
                 }
-            } catch (error) {
-                showStatus('创建失败：' + error.message, 'error');
+            } else {
+                // 不存在，创建它
+                // 检查是否有冲突（alias 名已被其他 alias 占用）
+                const conflict = config.aliases.some(a => a.alias === modelName);
+                if (conflict) {
+                    showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/upstream-models/alias', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            upstream: upstreamName,
+                            model: modelName
+                        })
+                    });
+
+                    if (response.ok) {
+                        showStatus(`已创建 auto alias: ${modelName}`, 'success');
+                        // 重新加载配置
+                        await loadConfig();
+                    } else if (response.status === 409) {
+                        showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
+                    } else {
+                        const err = await response.json();
+                        showStatus('创建失败：' + (err.error || '未知错误'), 'error');
+                    }
+                } catch (error) {
+                    showStatus('创建失败：' + error.message, 'error');
+                }
             }
         }
 
@@ -1622,6 +1645,7 @@
                     showStatus('配置已保存', 'success');
                     renderUpstreams();
                     renderAliases();
+                    renderAggregatedModels();
                     return true;
                 } else {
                     showStatus('保存失败', 'error');
