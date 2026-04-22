@@ -104,6 +104,7 @@ async fn main() -> std::io::Result<()> {
             .route("/api/config", web::get().to(get_config))
             .route("/api/config", web::put().to(update_config))
             .route("/api/upstream-models", web::get().to(get_upstream_models))
+            .route("/api/upstream-models/alias", web::post().to(create_upstream_model_alias))
             .route("/api/debug", web::get().to(get_debug_data))
             .route("/api/debug", web::delete().to(clear_debug_data))
             .route("/api/debug/stream", web::get().to(debug_stream))
@@ -441,3 +442,64 @@ async fn webui_index() -> HttpResponse {
 }
 
 use serde_json::json;
+use models::ModelAliasSource;
+
+/// 创建上游模型 alias 的请求
+#[derive(Debug, serde::Deserialize)]
+struct CreateAliasRequest {
+    upstream: String,
+    model: String,
+}
+
+/// 创建上游模型 auto alias
+async fn create_upstream_model_alias(
+    state: web::Data<AppState>,
+    body: web::Json<CreateAliasRequest>,
+) -> HttpResponse {
+    let mut config = state.config.get_config().await;
+
+    // 验证上游存在且启用
+    let upstream = config.upstreams.iter()
+        .find(|u| u.name == body.upstream && u.enabled);
+
+    if upstream.is_none() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "上游不存在或未启用"
+        }));
+    }
+
+    let upstream = upstream.unwrap();
+
+    // 检查 alias 是否已存在（通过 alias 名）
+    if config.aliases.iter().any(|a| a.alias == body.model) {
+        return HttpResponse::Conflict().json(json!({
+            "error": "别名已存在",
+            "alias": body.model
+        }));
+    }
+
+    // 注意：不检查 target_model 是否已存在
+    // 原因：auto alias (alias=target_model) 和手动 alias (alias!=target_model) 可以共存
+    // 用户可以通过选择不同的 alias 名来控制行为（是否带参数覆盖）
+
+    // 创建 auto alias（透传：alias = target_model）
+    config.aliases.push(models::ModelAlias {
+        alias: body.model.clone(),
+        target_model: body.model.clone(),
+        upstream: upstream.name.clone(),
+        param_overrides: vec![],
+        source: ModelAliasSource::Auto,
+    });
+
+    // 保存配置
+    if let Err(e) = state.config.update_config(config).await {
+        return HttpResponse::InternalServerError().json(json!({
+            "error": format!("保存配置失败：{}", e)
+        }));
+    }
+
+    HttpResponse::Ok().json(json!({
+        "success": true,
+        "alias": body.model
+    }))
+}

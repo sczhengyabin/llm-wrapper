@@ -70,6 +70,7 @@ fn test_save_and_load_config() {
             target_model: "model1".to_string(),
             upstream: "test".to_string(),
             param_overrides: vec![],
+            source: ModelAliasSource::Manual,
         }],
     };
 
@@ -103,6 +104,7 @@ fn test_save_config_with_param_overrides() {
                 value: serde_json::json!(0.7),
                 mode: OverrideMode::Default,
             }],
+            source: ModelAliasSource::Manual,
         }],
     };
 

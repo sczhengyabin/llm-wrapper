@@ -1,6 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Alias 来源类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelAliasSource {
+    /// 跟随上游自动创建
+    Auto,
+    /// 用户手动添加
+    #[default]
+    Manual,
+}
+
 /// 参数覆盖模式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -73,6 +84,9 @@ pub struct ModelAlias {
     /// 参数覆盖列表
     #[serde(default)]
     pub param_overrides: Vec<ParamOverride>,
+    /// 来源类型
+    #[serde(default)]
+    pub source: ModelAliasSource,
 }
 
 impl ModelAlias {
@@ -83,6 +97,7 @@ impl ModelAlias {
             target_model,
             upstream,
             param_overrides: Vec::new(),
+            source: ModelAliasSource::Manual,
         }
     }
 }

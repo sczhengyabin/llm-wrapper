@@ -146,6 +146,41 @@
             border-radius: 4px;
             font-size: 11px;
             font-family: monospace;
+            cursor: default;
+        }
+        /* 已启用 - 绿色 */
+        .model-tag.enabled {
+            background: #d4edda;
+            color: #155724;
+            cursor: pointer;
+        }
+        /* 可点击 - 蓝色 */
+        .model-tag.available {
+            background: #cce5ff;
+            color: #004085;
+            cursor: pointer;
+        }
+        /* 冲突 - 红色 */
+        .model-tag.conflict {
+            background: #f8d7da;
+            color: #721c24;
+            cursor: not-allowed;
+        }
+        /* Source tag */
+        .source-tag {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            margin-left: 6px;
+        }
+        .source-tag.auto {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .source-tag.manual {
+            background: #e2e3e5;
+            color: #383d41;
         }
         .item-actions {
             display: flex;
@@ -879,7 +914,31 @@
                     ? `<div class="models-wrapper">
                         <div class="models-label">可用模型</div>
                         <div class="models-grid">
-                            ${models.map(m => `<span class="model-tag">${escapeHtml(m)}</span>`).join('')}
+                            ${models.map(m => {
+                                // 检查是否已有 auto alias 指向此模型（同一 upstream）
+                                const existingAlias = config.aliases.find(a =>
+                                    a.target_model === m && a.upstream === u.name && a.source === 'auto'
+                                );
+                                // 检查是否有冲突：只有 alias 名相同才算冲突
+                                // target_model 相同可以共存（手动 alias 和 auto alias 可以并存）
+                                const hasConflict = config.aliases.some(a => a.alias === m);
+
+                                let tagClass = 'model-tag available';
+                                let onclickAttr = `addAutoAlias('${u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
+
+                                if (existingAlias) {
+                                    // 已有 auto alias，显示绿色
+                                    tagClass = 'model-tag enabled';
+                                    onclickAttr = null; // 已启用，无需再次点击
+                                } else if (hasConflict) {
+                                    // 有冲突，显示红色
+                                    tagClass = 'model-tag conflict';
+                                    onclickAttr = null; // 禁用点击
+                                }
+
+                                const onclickStr = onclickAttr ? `onclick="${onclickAttr}"` : '';
+                                return `<span class="${tagClass}" ${onclickStr}>${escapeHtml(m)}</span>`;
+                            }).join('')}
                         </div>
                     </div>`
                     : '';
@@ -915,6 +974,9 @@
             }
             list.innerHTML = config.aliases.map((a, i) => {
                 const upstream = config.upstreams.find(u => u.name === a.upstream);
+                const sourceTag = a.source === 'auto'
+                    ? '<span class="source-tag auto">auto</span>'
+                    : '<span class="source-tag manual">manual</span>';
                 const paramsHtml = (a.param_overrides && a.param_overrides.length > 0) ?
                     `<div class="param-tags">
                         ${a.param_overrides.map(p => `
@@ -924,7 +986,10 @@
                 return `
                     <div class="item-card">
                         <div class="item-info">
-                            <div class="item-title">${escapeHtml(a.alias)}</div>
+                            <div class="item-title">
+                                ${escapeHtml(a.alias)}
+                                ${sourceTag}
+                            </div>
                             <div class="item-detail">目标：${escapeHtml(a.target_model)}</div>
                             <div class="item-detail">上游：${upstream ? upstream.name : '未知'}</div>
                             ${paramsHtml}
@@ -1303,6 +1368,40 @@
             await Promise.all(promises);
         }
 
+        // 创建 auto alias（通过点击模型标签）
+        async function addAutoAlias(upstreamName, modelName) {
+            // 检查是否有冲突
+            const conflict = config.aliases.some(a => a.alias === modelName);
+            if (conflict) {
+                showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/upstream-models/alias', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        upstream: upstreamName,
+                        model: modelName
+                    })
+                });
+
+                if (response.ok) {
+                    showStatus(`已创建 auto alias: ${modelName}`, 'success');
+                    // 重新加载配置
+                    await loadConfig();
+                } else if (response.status === 409) {
+                    showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
+                } else {
+                    const err = await response.json();
+                    showStatus('创建失败：' + (err.error || '未知错误'), 'error');
+                }
+            } catch (error) {
+                showStatus('创建失败：' + error.message, 'error');
+            }
+        }
+
         async function saveAlias(e) {
             e.preventDefault();
 
@@ -1311,6 +1410,18 @@
 
             if (!targetModel) {
                 showStatus('请选择或输入目标模型', 'error');
+                return;
+            }
+
+            // 获取别名
+            const aliasName = document.getElementById('aliasName').value;
+
+            // 检查冲突（手动创建时）
+            const existingAlias = config.aliases.find((a, idx) =>
+                a.alias === aliasName && idx !== editingAliasIndex
+            );
+            if (existingAlias) {
+                showStatus(`别名 "${aliasName}" 已存在，请修改`, 'error');
                 return;
             }
 
@@ -1333,11 +1444,27 @@
                 }
             }
 
+            // 先确定 source：如果是编辑且未修改，保留原 source
+            let source = 'manual';
+            if (editingAliasIndex >= 0) {
+                const originalAlias = config.aliases[editingAliasIndex];
+                const upstreamValue = document.getElementById('aliasUpstream').value;
+                if (originalAlias?.source === 'auto' &&
+                    originalAlias.alias === aliasName &&
+                    originalAlias.target_model === targetModel &&
+                    originalAlias.upstream === upstreamValue) {
+                    source = 'auto';  // 完全未修改，保留 auto
+                } else if (originalAlias?.source === 'manual') {
+                    source = 'manual';  // 原本是 manual，保持 manual
+                }
+            }
+
             const alias = {
-                alias: document.getElementById('aliasName').value,
+                alias: aliasName,
                 target_model: targetModel,
                 upstream: document.getElementById('aliasUpstream').value,
-                param_overrides: paramOverrides
+                param_overrides: paramOverrides,
+                source: source
             };
 
             if (editingAliasIndex >= 0) {

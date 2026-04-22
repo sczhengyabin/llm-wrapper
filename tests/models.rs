@@ -1,6 +1,43 @@
 use llm_wrapper::models::*;
 
 #[test]
+fn test_model_alias_source_serialization() {
+    let source = ModelAliasSource::Auto;
+    let serialized = serde_json::to_string(&source).unwrap();
+    assert_eq!(serialized, "\"auto\"");
+
+    let source = ModelAliasSource::Manual;
+    let serialized = serde_json::to_string(&source).unwrap();
+    assert_eq!(serialized, "\"manual\"");
+}
+
+#[test]
+fn test_model_alias_source_deserialization() {
+    let source: ModelAliasSource = serde_json::from_str("\"auto\"").unwrap();
+    assert_eq!(source, ModelAliasSource::Auto);
+
+    let source: ModelAliasSource = serde_json::from_str("\"manual\"").unwrap();
+    assert_eq!(source, ModelAliasSource::Manual);
+}
+
+#[test]
+fn test_model_alias_with_source() {
+    let alias = ModelAlias {
+        alias: "test".to_string(),
+        target_model: "gpt-4".to_string(),
+        upstream: "upstream1".to_string(),
+        param_overrides: vec![],
+        source: ModelAliasSource::Auto,
+    };
+
+    let serialized = serde_json::to_string(&alias).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+
+    assert_eq!(parsed["alias"], "test");
+    assert_eq!(parsed["source"], "auto");
+}
+
+#[test]
 fn test_override_mode_serialization() {
     let override_mode = OverrideMode::Override;
     let serialized = serde_json::to_string(&override_mode).unwrap();
