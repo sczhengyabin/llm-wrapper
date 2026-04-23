@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM Wrapper 配置</title>
+    <title data-i18n="page_title">LLM Wrapper 配置</title>
     <style>
         * {
             margin: 0;
@@ -19,6 +19,37 @@
         .container {
             max-width: 1200px;
             margin: 0 auto;
+        }
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .header-bar h1 {
+            margin-bottom: 0;
+        }
+        .lang-switch {
+            display: flex;
+            gap: 4px;
+            background: #e9ecef;
+            border-radius: 6px;
+            padding: 3px;
+        }
+        .lang-btn {
+            background: none;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #666;
+            transition: all 0.2s;
+        }
+        .lang-btn.active {
+            background: white;
+            color: #333;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         h1 {
             color: #333;
@@ -148,27 +179,23 @@
             font-family: monospace;
             cursor: default;
         }
-        /* 已启用 - 绿色，实线边框 */
         .model-tag.enabled {
             background: #d4edda;
             color: #155724;
             border: 2px solid #28a745;
             cursor: pointer;
         }
-        /* 可点击 - 蓝色，虚线边框 */
         .model-tag.available {
             background: #cce5ff;
             color: #004085;
             border: 2px dashed #004085;
             cursor: pointer;
         }
-        /* 冲突 - 红色 */
         .model-tag.conflict {
             background: #f8d7da;
             color: #721c24;
             cursor: not-allowed;
         }
-        /* Source tag */
         .source-tag {
             display: inline-block;
             padding: 2px 6px;
@@ -193,7 +220,6 @@
             min-width: 60px;
             white-space: nowrap;
         }
-        /* Toggle Switch */
         .switch {
             position: relative;
             display: inline-block;
@@ -404,7 +430,6 @@
             color: #666;
             padding: 10px;
         }
-        /* 调试窗口样式 */
         .debug-toggle {
             position: fixed;
             bottom: 20px;
@@ -522,30 +547,6 @@
             max-height: 400px;
             overflow-y: auto;
         }
-        .debug-label {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .debug-label.request {
-            background: #1565c0;
-            color: white;
-        }
-        .debug-label.upstream {
-            background: #2e7d32;
-            color: white;
-        }
-        .debug-label.response {
-            background: #7b1fa2;
-            color: white;
-        }
-        .debug-label.error {
-            background: #c62828;
-            color: white;
-        }
         .debug-clear {
             background: #3d3d3d;
             color: #aaa;
@@ -559,13 +560,9 @@
             background: #4d4d4d;
             color: #fff;
         }
-        .model-select-wrapper {
-            position: relative;
-        }
         .refresh-btn {
             min-width: 80px;
         }
-        /* 聚合模型表格 */
         .models-table {
             width: 100%;
             border-collapse: collapse;
@@ -631,7 +628,6 @@
             font-weight: 600;
             color: #333;
         }
-        /* 协议支持卡片 */
         .protocol-cards {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -685,106 +681,112 @@
 </head>
 <body>
     <div class="container">
-        <h1>LLM Wrapper 配置</h1>
+        <div class="header-bar">
+            <h1 data-i18n="page_title">LLM Wrapper 配置</h1>
+            <div class="lang-switch">
+                <button class="lang-btn active" onclick="switchLang('zh')">中文</button>
+                <button class="lang-btn" onclick="switchLang('en')">EN</button>
+            </div>
+        </div>
 
-        <!-- 聚合模型列表 -->
+        <!-- Aggregated Models -->
         <div class="section">
-            <h2>聚合模型列表</h2>
-            <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+            <h2 data-i18n="section_models">聚合模型列表</h2>
+            <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="models_desc">
                 所有可通过 <code>/v1/models</code> API 获取的模型别名（按上游分组）
             </p>
             <div id="aggregatedModelsTable">
-                <div class="loading">加载中...</div>
+                <div class="loading" data-i18n="loading">加载中...</div>
             </div>
         </div>
 
-        <!-- 上游配置 -->
+        <!-- Upstream Config -->
         <div class="section">
-            <h2>上游配置</h2>
-            <button class="btn" onclick="openUpstreamModal()">添加上游</button>
+            <h2 data-i18n="section_upstreams">上游配置</h2>
+            <button class="btn" data-i18n="btn_add_upstream" onclick="openUpstreamModal()">添加上游</button>
             <div class="item-list" id="upstreamList">
-                <div class="empty-state">加载中...</div>
+                <div class="empty-state" data-i18n="loading">加载中...</div>
             </div>
         </div>
 
-        <!-- 模型别名配置 -->
+        <!-- Alias Config -->
         <div class="section">
-            <h2>模型别名配置</h2>
-            <button class="btn" onclick="openAliasModal()">添加别名</button>
+            <h2 data-i18n="section_aliases">模型别名配置</h2>
+            <button class="btn" data-i18n="btn_add_alias" onclick="openAliasModal()">添加别名</button>
             <div class="item-list" id="aliasList">
-                <div class="empty-state">加载中...</div>
+                <div class="empty-state" data-i18n="loading">加载中...</div>
             </div>
         </div>
 
         <div id="status" class="status" style="display: none;"></div>
     </div>
 
-    <!-- 调试面板 -->
+    <!-- Debug Panel -->
     <div class="debug-toggle">
-        <button class="debug-btn" onclick="toggleDebugPanel()">🔍 调试</button>
+        <button class="debug-btn" data-i18n="btn_debug" onclick="toggleDebugPanel()">🔍 调试</button>
     </div>
     <div class="debug-panel" id="debugPanel">
         <div class="debug-header">
-            <h4>请求调试</h4>
+            <h4 data-i18n="debug_title">请求调试</h4>
             <button class="debug-close" onclick="toggleDebugPanel()">&times;</button>
         </div>
         <div class="debug-tabs">
-            <button class="debug-tab active" onclick="switchDebugTab('client')">客户端请求</button>
-            <button class="debug-tab" onclick="switchDebugTab('upstream')">发送到上游</button>
-            <button class="debug-tab" onclick="switchDebugTab('response')">上游响应</button>
+            <button class="debug-tab active" data-i18n="debug_tab_client" onclick="switchDebugTab('client')">客户端请求</button>
+            <button class="debug-tab" data-i18n="debug_tab_upstream" onclick="switchDebugTab('upstream')">发送到上游</button>
+            <button class="debug-tab" data-i18n="debug_tab_response" onclick="switchDebugTab('response')">上游响应</button>
         </div>
         <div class="debug-content">
             <div id="debugClient" class="debug-section active">
-                <h5>客户端发送到 Wrapper</h5>
+                <h5 data-i18n="debug_client_label">客户端发送到 Wrapper</h5>
                 <div id="debugClientMeta" style="margin-bottom: 8px; font-size: 12px; color: #888;"></div>
                 <div class="debug-json" id="debugClientJson">{等待请求...}</div>
             </div>
             <div id="debugUpstream" class="debug-section">
-                <h5>Wrapper 发送到上游</h5>
+                <h5 data-i18n="debug_upstream_label">Wrapper 发送到上游</h5>
                 <div id="debugUpstreamMeta" style="margin-bottom: 8px; font-size: 12px; color: #888;"></div>
                 <div class="debug-json" id="debugUpstreamJson">{等待请求...}</div>
             </div>
             <div id="debugResponse" class="debug-section">
-                <h5>上游返回</h5>
+                <h5 data-i18n="debug_response_label">上游返回</h5>
                 <div class="debug-json" id="debugResponseJson">{等待响应...}</div>
             </div>
         </div>
         <div style="padding: 10px; border-top: 1px solid #3d3d3d; display: flex; justify-content: space-between; align-items: center;">
             <label style="color: #666; font-size: 12px; display: flex; align-items: center; gap: 6px;">
                 <input type="checkbox" id="streamMonitorToggle" onchange="toggleStreamMonitor()">
-                监听流式响应
+                <span data-i18n="debug_stream_monitor">监听流式响应</span>
             </label>
-            <button class="debug-clear" onclick="clearDebugData()">清空数据</button>
+            <button class="debug-clear" data-i18n="debug_clear" onclick="clearDebugData()">清空数据</button>
         </div>
     </div>
 
-    <!-- 上游编辑模态框 -->
+    <!-- Upstream Modal -->
     <div class="modal" id="upstreamModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="upstreamModalTitle">添加上游</h3>
+                <h3 id="upstreamModalTitle" data-i18n="modal_add_upstream">添加上游</h3>
                 <button class="close-btn" onclick="closeUpstreamModal()">&times;</button>
             </div>
             <form id="upstreamForm" onsubmit="saveUpstream(event)">
                 <div class="form-group">
-                    <label>名称 *</label>
-                    <input type="text" id="upstreamName" required placeholder="上游名称（用作唯一标识）">
+                    <label data-i18n="upstream_name_label">名称 *</label>
+                    <input type="text" id="upstreamName" required data-i18n-placeholder="upstream_name_placeholder" placeholder="上游名称（用作唯一标识）">
                 </div>
                 <div class="form-group">
-                    <label>基础 URL *</label>
+                    <label data-i18n="upstream_baseurl_label">基础 URL *</label>
                     <input type="text" id="upstreamBaseUrl" required placeholder="http://example.com:3000">
                 </div>
                 <div class="form-group">
-                    <label>API 密钥</label>
-                    <input type="text" id="upstreamApiKey" placeholder="留空表示不需要密钥">
+                    <label data-i18n="upstream_apikey_label">API 密钥</label>
+                    <input type="text" id="upstreamApiKey" data-i18n-placeholder="upstream_apikey_placeholder" placeholder="留空表示不需要密钥">
                 </div>
                 <div class="form-group">
-                    <label>Models URL</label>
-                    <input type="text" id="upstreamModelsUrl" placeholder="留空则使用 {base_url}/v1/models">
-                    <div style="font-size: 12px; color: #999; margin-top: 4px;">用于获取上游模型列表，默认 {base_url}/v1/models</div>
+                    <label data-i18n="upstream_modelsurl_label">Models URL</label>
+                    <input type="text" id="upstreamModelsUrl" data-i18n-placeholder="upstream_modelsurl_placeholder" placeholder="留空则使用 {base_url}/v1/models">
+                    <div style="font-size: 12px; color: #999; margin-top: 4px;" data-i18n="upstream_modelsurl_hint">用于获取上游模型列表，默认 {base_url}/v1/models</div>
                 </div>
                 <div class="form-group">
-                    <label>协议支持</label>
+                    <label data-i18n="upstream_protocol_label">协议支持</label>
                     <div class="protocol-cards">
                         <div class="protocol-card active" id="openaiProtocolCard" onclick="toggleProtocolCard('openai')">
                             <div class="protocol-card-header">
@@ -809,70 +811,325 @@
                     </div>
                 </div>
                 <div class="form-group" style="display: flex; gap: 10px; align-items: stretch;">
-                    <button type="button" class="btn btn-primary" onclick="testUpstream()" style="flex: 1;">测试连接</button>
-                    <button type="submit" class="btn btn-success save-btn" style="flex: 1;">保存</button>
+                    <button type="button" class="btn btn-primary" data-i18n="btn_test_connection" onclick="testUpstream()" style="flex: 1;">测试连接</button>
+                    <button type="submit" class="btn btn-success save-btn" data-i18n="btn_save" style="flex: 1;">保存</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- 别名编辑模态框 -->
+    <!-- Alias Modal -->
     <div class="modal" id="aliasModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="aliasModalTitle">添加别名</h3>
+                <h3 id="aliasModalTitle" data-i18n="modal_add_alias">添加别名</h3>
                 <button class="close-btn" onclick="closeAliasModal()">&times;</button>
             </div>
             <form id="aliasForm" onsubmit="saveAlias(event)">
                 <input type="hidden" id="aliasId">
                 <div class="form-group">
-                    <label>别名 *</label>
-                    <input type="text" id="aliasName" required placeholder="本地使用的别名">
+                    <label data-i18n="alias_name_label">别名 *</label>
+                    <input type="text" id="aliasName" required data-i18n-placeholder="alias_name_placeholder" placeholder="本地使用的别名">
                 </div>
                 <div class="form-group">
-                    <label>上游 *</label>
+                    <label data-i18n="alias_upstream_label">上游 *</label>
                     <select id="aliasUpstream" required onchange="updateTargetSelect()">
-                        <option value="">-- 请选择上游 --</option>
+                        <option value="" data-i18n="alias_select_upstream">-- 请选择上游 --</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>目标模型 *</label>
+                    <label data-i18n="alias_target_label">目标模型 *</label>
                     <select id="aliasTargetSelect" disabled>
-                        <option value="">-- 请先选择上游 --</option>
+                        <option value="" data-i18n="alias_pick_upstream_first">-- 请先选择上游 --</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <label>参数设置</label>
-                        <button type="button" class="btn btn-add" onclick="addParamOverride()">添加</button>
+                        <label data-i18n="alias_params_label">参数设置</label>
+                        <button type="button" class="btn btn-add" data-i18n="btn_add" onclick="addParamOverride()">添加</button>
                     </div>
                     <div id="paramOverrides">
-                        <div class="empty-state" style="padding: 10px;">暂无参数设置</div>
+                        <div class="empty-state" style="padding: 10px;" data-i18n="alias_no_params">暂无参数设置</div>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>extra_body (JSON 格式)</label>
+                    <label data-i18n="alias_extrabody_label">extra_body (JSON)</label>
                     <textarea id="aliasExtraBody" placeholder='{"chat_template_kwargs": {"enable_thinking": false}}' rows="4" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px;"></textarea>
                 </div>
-                <button type="submit" class="btn btn-success save-btn">保存</button>
+                <button type="submit" class="btn btn-success save-btn" data-i18n="btn_save">保存</button>
             </form>
         </div>
     </div>
 
     <script>
+        // === i18n ===
+        let currentLang = 'zh';
+        const i18n = {
+            zh: {
+                page_title: "LLM Wrapper 配置",
+                section_models: "聚合模型列表",
+                models_desc: '所有可通过 <code>/v1/models</code> API 获取的模型别名（按上游分组）',
+                section_upstreams: "上游配置",
+                section_aliases: "模型别名配置",
+                btn_add_upstream: "添加上游",
+                btn_add_alias: "添加别名",
+                btn_add: "添加",
+                btn_save: "保存",
+                btn_edit: "编辑",
+                btn_delete: "删除",
+                btn_test_connection: "测试连接",
+                btn_debug: "🔍 调试",
+                loading: "加载中...",
+                empty_upstreams: "暂无上游配置",
+                empty_aliases: "暂无别名配置",
+                empty_model_aliases: "暂无模型别名配置",
+                available_models: "可用模型",
+                alias_name_col: "Alias 名称",
+                upstream_col: "上游",
+                target_model_col: "目标模型",
+                source_col: "来源",
+                target_prefix: "目标：",
+                upstream_prefix: "上游：",
+                unknown: "未知",
+                api_key_label: "API Key:",
+                none: "none",
+                modal_add_upstream: "添加上游",
+                modal_edit_upstream: "编辑上游",
+                modal_add_alias: "添加别名",
+                modal_edit_alias: "编辑别名",
+                upstream_name_label: "名称 *",
+                upstream_name_placeholder: "上游名称（用作唯一标识）",
+                upstream_baseurl_label: "基础 URL *",
+                upstream_apikey_label: "API 密钥",
+                upstream_apikey_placeholder: "留空表示不需要密钥",
+                upstream_modelsurl_label: "Models URL",
+                upstream_modelsurl_placeholder: "留空则使用 {base_url}/v1/models",
+                upstream_modelsurl_hint: "用于获取上游模型列表，默认 {base_url}/v1/models",
+                upstream_protocol_label: "协议支持",
+                alias_name_label: "别名 *",
+                alias_name_placeholder: "本地使用的别名",
+                alias_upstream_label: "上游 *",
+                alias_target_label: "目标模型 *",
+                alias_params_label: "参数设置",
+                alias_extrabody_label: "extra_body (JSON)",
+                alias_select_upstream: "-- 请选择上游 --",
+                alias_pick_upstream_first: "-- 请先选择上游 --",
+                alias_select_model: "-- 选择模型 --",
+                alias_no_params: "暂无参数设置",
+                alias_loading: "加载中...",
+                alias_upstream_not_found: "上游不存在",
+                alias_no_models: "该上游没有返回模型列表",
+                alias_load_failed: "加载失败",
+                param_key_placeholder: "参数名",
+                param_value_placeholder: "参数值",
+                param_mode_default: "默认",
+                param_mode_override: "覆盖",
+                debug_title: "请求调试",
+                debug_tab_client: "客户端请求",
+                debug_tab_upstream: "发送到上游",
+                debug_tab_response: "上游响应",
+                debug_client_label: "客户端发送到 Wrapper",
+                debug_upstream_label: "Wrapper 发送到上游",
+                debug_response_label: "上游返回",
+                debug_waiting: "{等待请求...}",
+                debug_waiting_response: "{等待响应...}",
+                debug_stream_monitor: "监听流式响应",
+                debug_clear: "清空数据",
+                debug_source_ip: "来源 IP: ",
+                debug_url: "URL: ",
+                confirm_delete_upstream: "确定要删除这个上游吗？",
+                confirm_delete_alias: "确定要删除这个别名吗？",
+                status_config_saved: "配置已保存",
+                status_save_failed: "保存失败",
+                status_load_failed: "加载配置失败：",
+                status_save_failed_msg: "保存失败：",
+                status_fill_baseurl: "请先填写基础 URL",
+                status_testing: "正在测试连接...",
+                status_connected: (n) => `连接成功！上游返回了 ${n} 个模型。`,
+                status_connect_failed: (s) => `连接失败：HTTP ${s}`,
+                status_connect_error: (e) => `连接失败：${e}`,
+                status_select_model: "请选择或输入目标模型",
+                status_alias_exists: (n) => `别名 "${n}" 已存在，请修改`,
+                status_alias_exists_create: (n) => `别名 "${n}" 已存在，无法创建`,
+                status_delete_failed: "删除失败：",
+                status_create_failed: "创建失败：",
+                status_unknown_error: "未知错误",
+                status_extra_body_invalid: "extra_body 必须是有效的 JSON 格式",
+                status_deleted_alias: (n) => `已删除 auto alias: ${n}`,
+                status_created_alias: (n) => `已创建 auto alias: ${n}`,
+                mode_default: "默认",
+                mode_override: "覆盖",
+            },
+            en: {
+                page_title: "LLM Wrapper Config",
+                section_models: "Aggregated Models",
+                models_desc: 'All model aliases accessible via <code>/v1/models</code> API (grouped by upstream)',
+                section_upstreams: "Upstream Config",
+                section_aliases: "Model Aliases",
+                btn_add_upstream: "Add Upstream",
+                btn_add_alias: "Add Alias",
+                btn_add: "Add",
+                btn_save: "Save",
+                btn_edit: "Edit",
+                btn_delete: "Delete",
+                btn_test_connection: "Test Connection",
+                btn_debug: "🔍 Debug",
+                loading: "Loading...",
+                empty_upstreams: "No upstream configured",
+                empty_aliases: "No alias configured",
+                empty_model_aliases: "No model aliases configured",
+                available_models: "Available Models",
+                alias_name_col: "Alias Name",
+                upstream_col: "Upstream",
+                target_model_col: "Target Model",
+                source_col: "Source",
+                target_prefix: "Target: ",
+                upstream_prefix: "Upstream: ",
+                unknown: "Unknown",
+                api_key_label: "API Key:",
+                none: "none",
+                modal_add_upstream: "Add Upstream",
+                modal_edit_upstream: "Edit Upstream",
+                modal_add_alias: "Add Alias",
+                modal_edit_alias: "Edit Alias",
+                upstream_name_label: "Name *",
+                upstream_name_placeholder: "Upstream name (unique identifier)",
+                upstream_baseurl_label: "Base URL *",
+                upstream_apikey_label: "API Key",
+                upstream_apikey_placeholder: "Leave empty if no key needed",
+                upstream_modelsurl_label: "Models URL",
+                upstream_modelsurl_placeholder: "Leave empty for {base_url}/v1/models",
+                upstream_modelsurl_hint: "URL to fetch upstream model list, defaults to {base_url}/v1/models",
+                upstream_protocol_label: "Protocol Support",
+                alias_name_label: "Alias *",
+                alias_name_placeholder: "Local alias name",
+                alias_upstream_label: "Upstream *",
+                alias_target_label: "Target Model *",
+                alias_params_label: "Parameter Settings",
+                alias_extrabody_label: "extra_body (JSON)",
+                alias_select_upstream: "-- Select Upstream --",
+                alias_pick_upstream_first: "-- Select Upstream First --",
+                alias_select_model: "-- Select Model --",
+                alias_no_params: "No parameter settings",
+                alias_loading: "Loading...",
+                alias_upstream_not_found: "Upstream not found",
+                alias_no_models: "This upstream returned no models",
+                alias_load_failed: "Load failed",
+                param_key_placeholder: "Parameter name",
+                param_value_placeholder: "Parameter value",
+                param_mode_default: "Default",
+                param_mode_override: "Override",
+                debug_title: "Request Debug",
+                debug_tab_client: "Client Request",
+                debug_tab_upstream: "To Upstream",
+                debug_tab_response: "Upstream Response",
+                debug_client_label: "Client to Wrapper",
+                debug_upstream_label: "Wrapper to Upstream",
+                debug_response_label: "Upstream Response",
+                debug_waiting: "{Waiting...}",
+                debug_waiting_response: "{Waiting for response...}",
+                debug_stream_monitor: "Monitor Stream Response",
+                debug_clear: "Clear Data",
+                debug_source_ip: "Source IP: ",
+                debug_url: "URL: ",
+                confirm_delete_upstream: "Are you sure to delete this upstream?",
+                confirm_delete_alias: "Are you sure to delete this alias?",
+                status_config_saved: "Config saved",
+                status_save_failed: "Save failed",
+                status_load_failed: "Failed to load config: ",
+                status_save_failed_msg: "Save failed: ",
+                status_fill_baseurl: "Please fill in the base URL first",
+                status_testing: "Testing connection...",
+                status_connected: (n) => `Connected! Upstream returned ${n} models.`,
+                status_connect_failed: (s) => `Connection failed: HTTP ${s}`,
+                status_connect_error: (e) => `Connection failed: ${e}`,
+                status_select_model: "Please select a target model",
+                status_alias_exists: (n) => `Alias "${n}" already exists, please change it`,
+                status_alias_exists_create: (n) => `Alias "${n}" already exists, cannot create`,
+                status_delete_failed: "Delete failed: ",
+                status_create_failed: "Create failed: ",
+                status_unknown_error: "Unknown error",
+                status_extra_body_invalid: "extra_body must be valid JSON",
+                status_deleted_alias: (n) => `Deleted auto alias: ${n}`,
+                status_created_alias: (n) => `Created auto alias: ${n}`,
+                mode_default: "default",
+                mode_override: "override",
+            }
+        };
+
+        function t(key, ...args) {
+            const val = i18n[currentLang][key];
+            if (typeof val === 'function') return val(...args);
+            return val || key;
+        }
+
+        function applyI18n() {
+            // Update text content
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                const val = i18n[currentLang][key];
+                if (typeof val === 'function') {
+                    // functions need args, skip for static elements
+                }
+                el.innerHTML = (val && typeof val !== 'function') ? val : (el.getAttribute('data-i18n'));
+            });
+            // Update placeholders
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                const val = i18n[currentLang][key];
+                if (val && typeof val !== 'function') {
+                    el.placeholder = val;
+                }
+            });
+            // Update lang attribute
+            document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+            // Update active button
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent.trim() === (currentLang === 'zh' ? '中文' : 'EN'));
+            });
+            // Re-render dynamic content
+            renderUpstreams();
+            renderAliases();
+            renderAggregatedModels();
+            updateDebugPlaceholders();
+        }
+
+        function updateDebugPlaceholders() {
+            const clientJson = document.getElementById('debugClientJson');
+            const upstreamJson = document.getElementById('debugUpstreamJson');
+            const responseJson = document.getElementById('debugResponseJson');
+            if (!clientJson.dataset.hasData) clientJson.textContent = t('debug_waiting');
+            if (!upstreamJson.dataset.hasData) upstreamJson.textContent = t('debug_waiting');
+            if (!responseJson.dataset.hasData) responseJson.textContent = t('debug_waiting_response');
+        }
+
+        function switchLang(lang) {
+            if (lang === currentLang) return;
+            currentLang = lang;
+            try { localStorage.setItem('llm-wrapper-lang', lang); } catch(e) {}
+            applyI18n();
+        }
+
+        // === App State ===
         let config = { upstreams: [], aliases: [] };
         let editingAliasIndex = -1;
-        let upstreamModelsCache = {}; // 缓存每个上游的模型列表
+        let upstreamModelsCache = {};
 
-        // 调试数据
         let debugData = {
             client: null,
             upstream: null,
             response: null
         };
 
-        // 初始化
         document.addEventListener('DOMContentLoaded', () => {
+            // Restore language preference
+            try {
+                const saved = localStorage.getItem('llm-wrapper-lang');
+                if (saved === 'en' || saved === 'zh') {
+                    currentLang = saved;
+                    applyI18n();
+                }
+            } catch(e) {}
             loadConfig();
         });
 
@@ -881,24 +1138,19 @@
         let accumulatedResponse = '';
         let streamMonitorEnabled = false;
 
-        // 切换调试面板
         function toggleDebugPanel() {
             const panel = document.getElementById('debugPanel');
             panel.classList.toggle('active');
 
             if (panel.classList.contains('active')) {
-                // 打开时立即获取数据
                 fetchDebugData();
-                // 如果开启了监听，建立 SSE 连接
                 if (streamMonitorEnabled) {
                     connectSSE();
                 }
-                // 开始轮询更新
                 if (!debugPollInterval) {
                     debugPollInterval = setInterval(fetchDebugData, 500);
                 }
             } else {
-                // 关闭时停止轮询和 SSE 连接
                 if (debugPollInterval) {
                     clearInterval(debugPollInterval);
                     debugPollInterval = null;
@@ -910,17 +1162,14 @@
             }
         }
 
-        // 切换流式监听开关
         function toggleStreamMonitor() {
             const checkbox = document.getElementById('streamMonitorToggle');
             streamMonitorEnabled = checkbox.checked;
 
             if (streamMonitorEnabled) {
-                // 开启时建立 SSE 连接
                 accumulatedResponse = '';
                 connectSSE();
             } else {
-                // 关闭时断开 SSE 连接
                 if (sseStream) {
                     sseStream.close();
                     sseStream = null;
@@ -928,40 +1177,38 @@
             }
         }
 
-        // 切换调试标签页
         function switchDebugTab(tab) {
-            // 更新标签状态
             document.querySelectorAll('.debug-tab').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
-
-            // 更新内容显示
             document.querySelectorAll('.debug-section').forEach(s => s.classList.remove('active'));
             document.getElementById('debug' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
         }
 
-        // 清空调试数据
         async function clearDebugData() {
-            // 断开 SSE 连接，停止接收新数据
             if (sseStream) {
                 sseStream.close();
                 sseStream = null;
             }
-            // 清空前端积累
             accumulatedResponse = '';
-            // 清空本地状态
             debugData = { client: null, upstream: null, response: null };
-            document.getElementById('debugClientJson').textContent = '{等待请求...}';
-            document.getElementById('debugUpstreamJson').textContent = '{等待请求...}';
-            document.getElementById('debugResponseJson').textContent = '{等待响应...}';
-            // 调用后端 API 清空调试数据
+            const clientJson = document.getElementById('debugClientJson');
+            const upstreamJson = document.getElementById('debugUpstreamJson');
+            const responseJson = document.getElementById('debugResponseJson');
+            delete clientJson.dataset.hasData;
+            delete upstreamJson.dataset.hasData;
+            delete responseJson.dataset.hasData;
+            clientJson.textContent = t('debug_waiting');
+            upstreamJson.textContent = t('debug_waiting');
+            responseJson.textContent = t('debug_waiting_response');
+            document.getElementById('debugClientMeta').textContent = '';
+            document.getElementById('debugUpstreamMeta').textContent = '';
             try {
                 await fetch('/api/debug', { method: 'DELETE' });
             } catch (error) {
-                console.error('清空调试数据失败:', error);
+                console.error('Failed to clear debug data:', error);
             }
         }
 
-        // 设置调试数据（供 API 调用使用）
         function setDebugData(type, data) {
             debugData[type] = data;
             const element = document.getElementById('debug' + type.charAt(0).toUpperCase() + type.slice(1) + 'Json');
@@ -974,90 +1221,80 @@
             }
         }
 
-        // 从后端获取调试数据（非流式部分）
         async function fetchDebugData() {
             try {
                 const response = await fetch('/api/debug');
                 const data = await response.json();
 
-                // 更新客户端请求
                 const clientEl = document.getElementById('debugClientJson');
                 const clientMetaEl = document.getElementById('debugClientMeta');
                 if (data.client_request) {
                     clientEl.textContent = JSON.stringify(data.client_request, null, 2);
+                    clientEl.dataset.hasData = 'true';
                     if (data.client_ip || data.client_url) {
-                        clientMetaEl.textContent = `来源 IP: ${data.client_ip || 'unknown'}  |  URL: ${data.client_url || 'unknown'}`;
+                        clientMetaEl.textContent = `${t('debug_source_ip')}${data.client_ip || 'unknown'}  |  ${t('debug_url').replace('URL: ', 'URL: ')}${data.client_url || 'unknown'}`;
                     }
                 } else {
-                    clientEl.textContent = '{等待请求...}';
+                    if (!clientEl.dataset.hasData) clientEl.textContent = t('debug_waiting');
                     clientMetaEl.textContent = '';
                 }
 
-                // 更新上游请求
                 const upstreamEl = document.getElementById('debugUpstreamJson');
                 const upstreamMetaEl = document.getElementById('debugUpstreamMeta');
                 if (data.upstream_request) {
                     upstreamEl.textContent = JSON.stringify(data.upstream_request, null, 2);
+                    upstreamEl.dataset.hasData = 'true';
                     if (data.upstream_url) {
-                        upstreamMetaEl.textContent = `URL: ${data.upstream_url}`;
+                        upstreamMetaEl.textContent = `${t('debug_url')}${data.upstream_url}`;
                     }
                 } else {
-                    upstreamEl.textContent = '{等待请求...}';
+                    if (!upstreamEl.dataset.hasData) upstreamEl.textContent = t('debug_waiting');
                     upstreamMetaEl.textContent = '';
                 }
 
-                // 更新上游响应（非流式）
                 const responseEl = document.getElementById('debugResponseJson');
                 if (data.upstream_response && typeof data.upstream_response === 'object') {
-                    // 非流式响应
                     responseEl.textContent = JSON.stringify(data.upstream_response, null, 2);
+                    responseEl.dataset.hasData = 'true';
                 } else if (!sseStream) {
-                    // 没有 SSE 连接时显示原始数据
                     if (data.upstream_response) {
                         responseEl.textContent = typeof data.upstream_response === 'object'
                             ? JSON.stringify(data.upstream_response, null, 2)
                             : data.upstream_response;
+                        responseEl.dataset.hasData = 'true';
                     } else {
-                        responseEl.textContent = '{等待响应...}';
+                        if (!responseEl.dataset.hasData) responseEl.textContent = t('debug_waiting_response');
                     }
                 }
-                // 流式响应由 SSE 实时更新，不在这里处理
             } catch (error) {
-                console.error('获取调试数据失败:', error);
+                console.error('Failed to fetch debug data:', error);
             }
         }
 
-        // 建立 SSE 连接接收流式响应
         function connectSSE() {
-            if (sseStream) return; // 已存在连接
+            if (sseStream) return;
 
             sseStream = new EventSource('/api/debug/stream');
 
             sseStream.onmessage = (event) => {
-                // 累积接收到的 chunk（前端积累）
                 accumulatedResponse += event.data;
 
-                // 更新显示
                 const responseEl = document.getElementById('debugResponseJson');
                 if (responseEl) {
-                    // 尝试解析为 JSON
                     try {
                         const parsed = JSON.parse(accumulatedResponse);
                         responseEl.textContent = JSON.stringify(parsed, null, 2);
                     } catch (e) {
-                        // 还不是完整 JSON，显示原始文本
                         responseEl.textContent = accumulatedResponse;
                     }
                 }
             };
 
             sseStream.onerror = (error) => {
-                // SSE 错误处理（可能是连接正常关闭）
-                console.log('SSE 连接结束');
+                console.log('SSE connection closed');
             };
         }
 
-        // 加载配置
         async function loadConfig() {
             try {
                 const response = await fetch('/api/config');
@@ -1065,46 +1302,39 @@
                 renderUpstreams();
                 renderAliases();
                 renderAggregatedModels();
-                // 加载所有上游的模型列表（渲染后再加载，不阻塞界面）
                 await loadAllUpstreamModels();
                 renderUpstreams();
             } catch (error) {
-                showStatus('加载配置失败：' + error.message, 'error');
+                showStatus(t('status_load_failed') + error.message, 'error');
             }
         }
 
-        // 渲染上游列表
         function renderUpstreams() {
             const list = document.getElementById('upstreamList');
             if (config.upstreams.length === 0) {
-                list.innerHTML = '<div class="empty-state">暂无上游配置</div>';
+                list.innerHTML = `<div class="empty-state">${t('empty_upstreams')}</div>`;
                 return;
             }
             list.innerHTML = config.upstreams.map((u, i) => {
                 const models = upstreamModelsCache[u.name] || [];
                 const modelsHtml = models.length > 0
                     ? `<div class="models-wrapper">
-                        <div class="models-label">可用模型</div>
+                        <div class="models-label">${t('available_models')}</div>
                         <div class="models-grid">
                             ${models.map(m => {
-                                // 检查是否已有 auto alias 指向此模型（同一 upstream）
                                 const existingAlias = config.aliases.find(a =>
                                     a.target_model === m && a.upstream === u.name && a.source === 'auto'
                                 );
-                                // 检查是否有冲突：只有 alias 名相同才算冲突
-                                // target_model 相同可以共存（手动 alias 和 auto alias 可以并存）
                                 const hasConflict = config.aliases.some(a => a.alias === m);
 
                                 let tagClass = 'model-tag available';
                                 let onclickAttr = `toggleAutoAlias('${u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
 
                                 if (existingAlias) {
-                                    // 已有 auto alias，显示绿色（实线边框）
                                     tagClass = 'model-tag enabled';
                                 } else if (hasConflict) {
-                                    // 有冲突，显示红色
                                     tagClass = 'model-tag conflict';
-                                    onclickAttr = null; // 禁用点击
+                                    onclickAttr = null;
                                 }
 
                                 const onclickStr = onclickAttr ? `onclick="${onclickAttr}"` : '';
@@ -1123,7 +1353,7 @@
                         <div class="item-info">
                             <div class="item-title">${escapeHtml(u.name)}</div>
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
-                            <div class="item-detail">API Key: ${u.api_key ? (u.api_key.length > 16 ? u.api_key.substring(0, 8) + '******' + u.api_key.substring(u.api_key.length - 8) : u.api_key) : 'none'}</div>
+                            <div class="item-detail">${t('api_key_label')} ${u.api_key ? (u.api_key.length > 16 ? u.api_key.substring(0, 8) + '******' + u.api_key.substring(u.api_key.length - 8) : u.api_key) : t('none')}</div>
                             <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
                                 <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
                                     <input type="checkbox" ${u.support_openai !== false ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_openai')">
@@ -1138,19 +1368,18 @@
                         </div>
                     </div>
                     <div class="item-actions">
-                        <button class="btn" onclick="editUpstream(${i})">编辑</button>
-                        <button class="btn btn-danger" onclick="deleteUpstream(${i})">删除</button>
+                        <button class="btn" onclick="editUpstream(${i})">${t('btn_edit')}</button>
+                        <button class="btn btn-danger" onclick="deleteUpstream(${i})">${t('btn_delete')}</button>
                     </div>
                 </div>
                 `;
             }).join('');
         }
 
-        // 渲染别名列表
         function renderAliases() {
             const list = document.getElementById('aliasList');
             if (config.aliases.length === 0) {
-                list.innerHTML = '<div class="empty-state">暂无别名配置</div>';
+                list.innerHTML = `<div class="empty-state">${t('empty_aliases')}</div>`;
                 return;
             }
             list.innerHTML = config.aliases.map((a, i) => {
@@ -1161,7 +1390,7 @@
                 const paramsHtml = (a.param_overrides && a.param_overrides.length > 0) ?
                     `<div class="param-tags">
                         ${a.param_overrides.map(p => `
-                            <span class="param-tag">${escapeHtml(p.key)}: <em>${escapeJson(p.value)}</em> <span class="param-mode">${p.mode === 'default' ? '默认' : '覆盖'}</span>
+                            <span class="param-tag">${escapeHtml(p.key)}: <em>${escapeJson(p.value)}</em> <span class="param-mode">${p.mode === 'default' ? t('mode_default') : t('mode_override')}</span>
                         </span>`).join('')}
                     </div>` : '';
                 return `
@@ -1171,28 +1400,26 @@
                                 ${escapeHtml(a.alias)}
                                 ${sourceTag}
                             </div>
-                            <div class="item-detail">目标：${escapeHtml(a.target_model)}</div>
-                            <div class="item-detail">上游：${upstream ? upstream.name : '未知'}</div>
+                            <div class="item-detail">${t('target_prefix')}${escapeHtml(a.target_model)}</div>
+                            <div class="item-detail">${t('upstream_prefix')}${upstream ? upstream.name : t('unknown')}</div>
                             ${paramsHtml}
                         </div>
                         <div class="item-actions">
-                            <button class="btn" onclick="editAlias(${i})">编辑</button>
-                            <button class="btn btn-danger" onclick="deleteAlias(${i})">删除</button>
+                            <button class="btn" onclick="editAlias(${i})">${t('btn_edit')}</button>
+                            <button class="btn btn-danger" onclick="deleteAlias(${i})">${t('btn_delete')}</button>
                         </div>
                     </div>
                 `;
             }).join('');
         }
 
-        // 渲染聚合模型列表（按上游分组）
         function renderAggregatedModels() {
             const container = document.getElementById('aggregatedModelsTable');
             if (config.aliases.length === 0) {
-                container.innerHTML = '<div class="empty-state">暂无模型别名配置</div>';
+                container.innerHTML = `<div class="empty-state">${t('empty_model_aliases')}</div>`;
                 return;
             }
 
-            // 按上游分组
             const grouped = {};
             config.upstreams.forEach(u => {
                 if (u.enabled) {
@@ -1206,19 +1433,16 @@
                 }
             });
 
-            // 构建表格 HTML
             let html = '<table class="models-table">';
-            html += '<thead><tr><th>Alias 名称</th><th>上游</th><th>目标模型</th><th>来源</th></tr></thead>';
+            html += `<thead><tr><th>${t('alias_name_col')}</th><th>${t('upstream_col')}</th><th>${t('target_model_col')}</th><th>${t('source_col')}</th></tr></thead>`;
             html += '<tbody>';
 
-            // 按上游名称排序
             const sortedUpstreams = Object.keys(grouped).sort();
 
             sortedUpstreams.forEach(upstreamName => {
                 const aliases = grouped[upstreamName];
                 if (aliases.length === 0) return;
 
-                // 添加上游分组标题行
                 html += `<tr class="upstream-group-header"><td colspan="4">📦 ${escapeHtml(upstreamName)}</td></tr>`;
 
                 aliases.forEach(a => {
@@ -1239,24 +1463,22 @@
             container.innerHTML = html;
         }
 
-        // 上游模态框
         function openUpstreamModal() {
             document.getElementById('upstreamModal').classList.add('active');
-            document.getElementById('upstreamModalTitle').textContent = '添加上游';
+            document.getElementById('upstreamModalTitle').textContent = t('modal_add_upstream');
             document.getElementById('upstreamForm').reset();
             document.getElementById('upstreamName').readOnly = false;
-            hideTestResult();
         }
 
         async function testUpstream() {
             const baseUrl = document.getElementById('upstreamBaseUrl').value;
 
             if (!baseUrl) {
-                showStatus('请先填写基础 URL', 'error');
+                showStatus(t('status_fill_baseurl'), 'error');
                 return;
             }
 
-            showStatus('正在测试连接...', 'loading');
+            showStatus(t('status_testing'), 'loading');
 
             try {
                 const modelsUrl = document.getElementById('upstreamModelsUrl').value;
@@ -1276,12 +1498,12 @@
                 if (response.ok) {
                     const data = await response.json();
                     const modelCount = data.data ? data.data.length : 0;
-                    showStatus(`连接成功！上游返回了 ${modelCount} 个模型。`, 'success');
+                    showStatus(t('status_connected', modelCount), 'success');
                 } else {
-                    showStatus(`连接失败：HTTP ${response.status}`, 'error');
+                    showStatus(t('status_connect_failed', response.status), 'error');
                 }
             } catch (error) {
-                showStatus(`连接失败：${error.message}`, 'error');
+                showStatus(t('status_connect_error', error.message), 'error');
             }
         }
 
@@ -1294,7 +1516,7 @@
         function editUpstream(index) {
             const u = config.upstreams[index];
             document.getElementById('upstreamModal').classList.add('active');
-            document.getElementById('upstreamModalTitle').textContent = '编辑上游';
+            document.getElementById('upstreamModalTitle').textContent = t('modal_edit_upstream');
             document.getElementById('upstreamName').value = u.name;
             document.getElementById('upstreamName').readOnly = true;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
@@ -1306,7 +1528,6 @@
             updateProtocolCard('anthropic');
         }
 
-        // 协议卡片交互
         function toggleProtocolCard(type) {
             const checkboxId = type === 'openai' ? 'upstreamSupportOpenai' : 'upstreamSupportAnthropic';
             const checkbox = document.getElementById(checkboxId);
@@ -1337,24 +1558,22 @@
         }
 
         function deleteUpstream(index) {
-            if (!confirm('确定要删除这个上游吗？')) return;
+            if (!confirm(t('confirm_delete_upstream'))) return;
             config.upstreams.splice(index, 1);
             saveConfig();
         }
 
-        // 别名模态框
         function openAliasModal() {
             document.getElementById('aliasModal').classList.add('active');
-            document.getElementById('aliasModalTitle').textContent = '添加别名';
+            document.getElementById('aliasModalTitle').textContent = t('modal_add_alias');
             document.getElementById('aliasForm').reset();
             document.getElementById('aliasId').value = '';
             document.getElementById('aliasExtraBody').value = '';
             editingAliasIndex = -1;
             renderParamOverrides([]);
             updateUpstreamSelect();
-            // 重置目标模型选择框
             const select = document.getElementById('aliasTargetSelect');
-            select.innerHTML = '<option value="">-- 请先选择上游 --</option>';
+            select.innerHTML = `<option value="">${t('alias_pick_upstream_first')}</option>`;
             select.disabled = true;
         }
 
@@ -1364,37 +1583,31 @@
 
         function updateUpstreamSelect() {
             const select = document.getElementById('aliasUpstream');
-            select.innerHTML = '<option value="">-- 请选择上游 --</option>' +
+            select.innerHTML = `<option value="">${t('alias_select_upstream')}</option>` +
                 config.upstreams
                     .filter(u => u.enabled)
                     .map(u => `<option value="${u.name}">${u.name}</option>`).join('');
         }
 
-        // 更新目标模型下拉框（从当前选择的上游获取模型列表）
         async function updateTargetSelect() {
             const upstreamName = document.getElementById('aliasUpstream').value;
             const select = document.getElementById('aliasTargetSelect');
 
             if (!upstreamName) {
-                select.innerHTML = '<option value="">-- 请先选择上游 --</option>';
+                select.innerHTML = `<option value="">${t('alias_pick_upstream_first')}</option>`;
                 select.disabled = true;
                 return;
             }
 
-            // 启用目标模型选择框
             select.disabled = false;
+            select.innerHTML = `<option value="">${t('alias_loading')}</option>`;
 
-            // 每次选择上游都重新加载模型列表
-            select.innerHTML = '<option value="">加载中...</option>';
-
-            // 找到当前选择的上游配置
             const upstream = config.upstreams.find(u => u.name === upstreamName);
             if (!upstream) {
-                select.innerHTML = '<option value="">上游不存在</option>';
+                select.innerHTML = `<option value="">${t('alias_upstream_not_found')}</option>`;
                 return;
             }
 
-            // 直接请求该上游的 models URL
             let url = upstream.models_url || `${upstream.base_url}/v1/models`;
             const headers = {};
             if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
@@ -1405,30 +1618,28 @@
                 const response = await fetch(url, { headers });
                 const data = await response.json();
 
-                // 提取模型 ID 列表
                 const models = (data.data || []).map(m => m.id).filter(id => id);
 
                 if (models.length === 0) {
-                    select.innerHTML = '<option value="">该上游没有返回模型列表</option>';
+                    select.innerHTML = `<option value="">${t('alias_no_models')}</option>`;
                 } else {
-                    select.innerHTML = '<option value="">-- 选择模型 --</option>' +
+                    select.innerHTML = `<option value="">${t('alias_select_model')}</option>` +
                         models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
                 }
             } catch (error) {
-                select.innerHTML = '<option value="">加载失败</option>';
-                console.error('加载模型列表失败:', error);
+                select.innerHTML = `<option value="">${t('alias_load_failed')}</option>`;
+                console.error('Failed to load model list:', error);
             }
         }
 
         function editAlias(index) {
             const a = config.aliases[index];
             document.getElementById('aliasModal').classList.add('active');
-            document.getElementById('aliasModalTitle').textContent = '编辑别名';
+            document.getElementById('aliasModalTitle').textContent = t('modal_edit_alias');
             document.getElementById('aliasId').value = a.id || '';
             document.getElementById('aliasName').value = a.alias;
             editingAliasIndex = index;
 
-            // 提取 extra_body 并填充到独立输入框
             const extraBodyParam = (a.param_overrides || []).find(p => p.key === 'extra_body');
             if (extraBodyParam && extraBodyParam.value) {
                 document.getElementById('aliasExtraBody').value = JSON.stringify(extraBodyParam.value, null, 2);
@@ -1439,19 +1650,15 @@
             renderParamOverrides(a.param_overrides || []);
             updateUpstreamSelect();
 
-            // 设置上游并触发模型列表加载
             const upstreamSelect = document.getElementById('aliasUpstream');
             upstreamSelect.value = a.upstream;
 
-            // 先启用选择框，然后加载模型列表
             const select = document.getElementById('aliasTargetSelect');
             select.disabled = false;
 
-            // 直接加载模型列表（不依赖 onchange 事件）
             (async () => {
-                select.innerHTML = '<option value="">加载中...</option>';
+                select.innerHTML = `<option value="">${t('alias_loading')}</option>`;
 
-                // 找到当前选择的上游配置
                 const upstream = config.upstreams.find(u => u.name === a.upstream);
                 if (upstream) {
                     let url = upstream.models_url || `${upstream.base_url}/v1/models`;
@@ -1467,12 +1674,11 @@
                             const models = (data.data || []).map(m => m.id).filter(id => id);
 
                             if (models.length === 0) {
-                                select.innerHTML = '<option value="">该上游没有返回模型列表</option>';
+                                select.innerHTML = `<option value="">${t('alias_no_models')}</option>`;
                             } else {
-                                select.innerHTML = '<option value="">-- 选择模型 --</option>' +
+                                select.innerHTML = `<option value="">${t('alias_select_model')}</option>` +
                                     models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
 
-                                // 加载完成后设置目标模型
                                 if (models.includes(a.target_model)) {
                                     select.value = a.target_model;
                                 } else {
@@ -1480,32 +1686,29 @@
                                 }
                             }
                         } else {
-                            select.innerHTML = '<option value="">加载失败</option>';
+                            select.innerHTML = `<option value="">${t('alias_load_failed')}</option>`;
                         }
                     } catch (error) {
-                        select.innerHTML = '<option value="">加载失败</option>';
+                        select.innerHTML = `<option value="">${t('alias_load_failed')}</option>`;
                     }
                 } else {
-                    select.innerHTML = '<option value="">上游不存在</option>';
+                    select.innerHTML = `<option value="">${t('alias_upstream_not_found')}</option>`;
                 }
             })();
         }
 
         async function deleteAlias(index) {
-            if (!confirm('确定要删除这个别名吗？')) return;
+            if (!confirm(t('confirm_delete_alias'))) return;
             config.aliases.splice(index, 1);
             await saveConfig();
-            // 刷新聚合模型列表
             renderAggregatedModels();
         }
 
-        // 参数覆盖
         function renderParamOverrides(params) {
             const container = document.getElementById('paramOverrides');
-            // 过滤掉 extra_body，它已经有独立的输入框
             const filteredParams = (params || []).filter(p => p.key !== 'extra_body');
             if (filteredParams.length === 0) {
-                container.innerHTML = '<div class="empty-state" style="padding: 10px;">暂无参数设置</div>';
+                container.innerHTML = `<div class="empty-state" style="padding: 10px;">${t('alias_no_params')}</div>`;
                 return;
             }
             container.innerHTML = filteredParams.map((p, i) => {
@@ -1513,17 +1716,17 @@
                 const value = p.value !== undefined ? escapeJson(p.value) : '';
                 const mode = p.mode || 'default';
 
-                const valueInputHtml = `<input type="text" data-index="${i}" data-field="value" placeholder="参数值" value="${value}">`;
+                const valueInputHtml = `<input type="text" data-index="${i}" data-field="value" placeholder="${t('param_value_placeholder')}" value="${value}">`;
 
                 return `
                 <div class="param-row">
-                    <input type="text" data-index="${i}" data-field="key" placeholder="参数名" value="${escapeHtml(key)}" style="flex: 1;">
+                    <input type="text" data-index="${i}" data-field="key" placeholder="${t('param_key_placeholder')}" value="${escapeHtml(key)}" style="flex: 1;">
                     ${valueInputHtml}
                     <select data-index="${i}" data-field="mode">
-                        <option value="default" ${mode === 'default' ? 'selected' : ''}>默认</option>
-                        <option value="override" ${mode === 'override' ? 'selected' : ''}>覆盖</option>
+                        <option value="default" ${mode === 'default' ? 'selected' : ''}>${t('param_mode_default')}</option>
+                        <option value="override" ${mode === 'override' ? 'selected' : ''}>${t('param_mode_override')}</option>
                     </select>
-                    <button type="button" class="remove-param" onclick="removeParamOverride(${i})">删除</button>
+                    <button type="button" class="remove-param" onclick="removeParamOverride(${i})">${t('btn_delete')}</button>
                 </div>
                 `;
             }).join('');
@@ -1559,21 +1762,16 @@
             if (v === 'false') return false;
             if (v === 'null') return null;
             if (!isNaN(v) && v !== '') return Number(v);
-            // 尝试解析 JSON（用于 extra_body 等嵌套参数）
             try {
                 return JSON.parse(v);
-            } catch (e) {
-                // 不是有效的 JSON，返回原字符串
-            }
+            } catch (e) {}
             return v;
         }
 
-        // 生成 UUID 的兼容实现
         function generateUUID() {
             if (typeof crypto !== 'undefined' && crypto.randomUUID) {
                 return crypto.randomUUID();
             }
-            // 降级方案
             return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 const r = Math.random() * 16 | 0;
                 const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -1581,7 +1779,6 @@
             });
         }
 
-        // 保存
         async function saveUpstream(e) {
             e.preventDefault();
             const name = document.getElementById('upstreamName').value;
@@ -1604,14 +1801,12 @@
             }
             const success = await saveConfig();
             if (success) {
-                // 保存成功后，获取该上游的模型列表并重新渲染
                 await fetchUpstreamModels(upstream);
                 renderUpstreams();
                 closeUpstreamModal();
             }
         }
 
-        // 获取上游模型列表并缓存
         async function fetchUpstreamModels(upstream) {
             let url = upstream.models_url || `${upstream.base_url}/v1/models`;
             const headers = {};
@@ -1633,38 +1828,32 @@
             }
         }
 
-        // 加载所有上游的模型列表
         async function loadAllUpstreamModels() {
             upstreamModelsCache = {};
             const promises = config.upstreams.map(u => fetchUpstreamModels(u));
             await Promise.all(promises);
         }
 
-        // 切换 auto alias（创建/删除）
         async function toggleAutoAlias(upstreamName, modelName) {
-            // 检查是否已有 auto alias
             const existingAlias = config.aliases.find(a =>
                 a.alias === modelName && a.upstream === upstreamName && a.source === 'auto'
             );
 
             if (existingAlias) {
-                // 已存在，删除它
                 try {
                     const index = config.aliases.indexOf(existingAlias);
                     if (index > -1) {
                         config.aliases.splice(index, 1);
                         await saveConfig();
-                        showStatus(`已删除 auto alias: ${modelName}`, 'success');
+                        showStatus(t('status_deleted_alias', modelName), 'success');
                     }
                 } catch (error) {
-                    showStatus('删除失败：' + error.message, 'error');
+                    showStatus(t('status_delete_failed') + error.message, 'error');
                 }
             } else {
-                // 不存在，创建它
-                // 检查是否有冲突（alias 名已被其他 alias 占用）
                 const conflict = config.aliases.some(a => a.alias === modelName);
                 if (conflict) {
-                    showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
+                    showStatus(t('status_alias_exists_create', modelName), 'error');
                     return;
                 }
 
@@ -1679,17 +1868,16 @@
                     });
 
                     if (response.ok) {
-                        showStatus(`已创建 auto alias: ${modelName}`, 'success');
-                        // 重新加载配置
+                        showStatus(t('status_created_alias', modelName), 'success');
                         await loadConfig();
                     } else if (response.status === 409) {
-                        showStatus(`别名 "${modelName}" 已存在，无法创建`, 'error');
+                        showStatus(t('status_alias_exists_create', modelName), 'error');
                     } else {
                         const err = await response.json();
-                        showStatus('创建失败：' + (err.error || '未知错误'), 'error');
+                        showStatus(t('status_create_failed') + (err.error || t('status_unknown_error')), 'error');
                     }
                 } catch (error) {
-                    showStatus('创建失败：' + error.message, 'error');
+                    showStatus(t('status_create_failed') + error.message, 'error');
                 }
             }
         }
@@ -1697,30 +1885,25 @@
         async function saveAlias(e) {
             e.preventDefault();
 
-            // 获取目标模型
             const targetModel = document.getElementById('aliasTargetSelect').value;
 
             if (!targetModel) {
-                showStatus('请选择或输入目标模型', 'error');
+                showStatus(t('status_select_model'), 'error');
                 return;
             }
 
-            // 获取别名
             const aliasName = document.getElementById('aliasName').value;
 
-            // 检查冲突（手动创建时）
             const existingAlias = config.aliases.find((a, idx) =>
                 a.alias === aliasName && idx !== editingAliasIndex
             );
             if (existingAlias) {
-                showStatus(`别名 "${aliasName}" 已存在，请修改`, 'error');
+                showStatus(t('status_alias_exists', aliasName), 'error');
                 return;
             }
 
-            // 获取其他参数覆盖
             let paramOverrides = getParamOverridesFromForm();
 
-            // 如果有 extra_body，添加到 param_overrides
             const extraBodyValue = document.getElementById('aliasExtraBody').value.trim();
             if (extraBodyValue) {
                 try {
@@ -1731,12 +1914,11 @@
                         mode: 'default'
                     });
                 } catch (e) {
-                    showStatus('extra_body 必须是有效的 JSON 格式', 'error');
+                    showStatus(t('status_extra_body_invalid'), 'error');
                     return;
                 }
             }
 
-            // 先确定 source：如果是编辑且未修改，保留原 source
             let source = 'manual';
             if (editingAliasIndex >= 0) {
                 const originalAlias = config.aliases[editingAliasIndex];
@@ -1745,9 +1927,9 @@
                     originalAlias.alias === aliasName &&
                     originalAlias.target_model === targetModel &&
                     originalAlias.upstream === upstreamValue) {
-                    source = 'auto';  // 完全未修改，保留 auto
+                    source = 'auto';
                 } else if (originalAlias?.source === 'manual') {
-                    source = 'manual';  // 原本是 manual，保持 manual
+                    source = 'manual';
                 }
             }
 
@@ -1778,22 +1960,21 @@
                     body: JSON.stringify(config)
                 });
                 if (response.ok) {
-                    showStatus('配置已保存', 'success');
+                    showStatus(t('status_config_saved'), 'success');
                     renderUpstreams();
                     renderAliases();
                     renderAggregatedModels();
                     return true;
                 } else {
-                    showStatus('保存失败', 'error');
+                    showStatus(t('status_save_failed'), 'error');
                     return false;
                 }
             } catch (error) {
-                showStatus('保存失败：' + error.message, 'error');
+                showStatus(t('status_save_failed_msg') + error.message, 'error');
                 return false;
             }
         }
 
-        // 工具函数
         function showStatus(message, type) {
             const status = document.getElementById('status');
             status.textContent = message;
