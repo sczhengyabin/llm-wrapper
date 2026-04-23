@@ -9,7 +9,10 @@ use futures::StreamExt;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DebugInfo {
     pub client_request: serde_json::Value,
+    pub client_ip: String,
+    pub client_url: String,
     pub endpoint: String,
+    pub upstream_url: String,
     pub upstream_request: serde_json::Value,
     pub upstream_response: serde_json::Value,
 }
@@ -36,6 +39,8 @@ impl Proxy {
         method: String,
         path: String,
         body: serde_json::Value,
+        client_ip: String,
+        client_url: String,
         debug_data: Option<Arc<RwLock<Option<DebugInfo>>>>,
         stream_hub: Option<Arc<tokio::sync::broadcast::Sender<String>>>,
     ) -> Result<actix_web::HttpResponse, String> {
@@ -110,7 +115,10 @@ impl Proxy {
             // 保存初始调试数据（不包含响应内容）
             let initial_debug_info = DebugInfo {
                 client_request: client_request.clone(),
+                client_ip: client_ip.clone(),
+                client_url: client_url.clone(),
                 endpoint: endpoint.clone(),
+                upstream_url: upstream_url.clone(),
                 upstream_request: upstream_request.clone(),
                 upstream_response: serde_json::Value::Null,
             };
@@ -167,7 +175,10 @@ impl Proxy {
 
             let debug_info = DebugInfo {
                 client_request,
+                client_ip,
+                client_url,
                 endpoint,
+                upstream_url,
                 upstream_request,
                 upstream_response,
             };

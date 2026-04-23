@@ -173,12 +173,25 @@ async fn chat_completions(
         }));
     }
 
+    // 提取客户端信息
+    let client_ip = req.peer_addr()
+        .map(|p| p.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let client_url = format!(
+        "{}://{}{}",
+        req.connection_info().scheme(),
+        req.connection_info().host(),
+        req.uri().path()
+    );
+
     // 代理请求（调试数据在 proxy 内部保存）
     match proxy.proxy_request_with_debug(
         &route,
         "POST".to_string(),
         "/v1/chat/completions".to_string(),
         body.into_inner(),
+        client_ip,
+        client_url,
         Some(state.debug_data.data.clone()),
         Some(state.stream_hub.sender.clone()),
     ).await {
@@ -187,7 +200,10 @@ async fn chat_completions(
                 // 返回调试信息（只返回调试数据）
                 let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
                     client_request: serde_json::Value::Null,
+                    client_ip: String::new(),
+                    client_url: String::new(),
                     endpoint: String::new(),
+                    upstream_url: String::new(),
                     upstream_request: serde_json::Value::Null,
                     upstream_response: serde_json::Value::Null,
                 });
@@ -239,6 +255,17 @@ async fn responses(
         }));
     }
 
+    // 提取客户端信息
+    let client_ip = req.peer_addr()
+        .map(|p| p.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let client_url = format!(
+        "{}://{}{}",
+        req.connection_info().scheme(),
+        req.connection_info().host(),
+        req.uri().path()
+    );
+
     // 直接转发到上游的 /v1/responses 端点
     let original_body = body.into_inner();
 
@@ -247,6 +274,8 @@ async fn responses(
         "POST".to_string(),
         "/v1/responses".to_string(),
         original_body,
+        client_ip,
+        client_url,
         Some(state.debug_data.data.clone()),
         Some(state.stream_hub.sender.clone()),
     ).await {
@@ -255,7 +284,10 @@ async fn responses(
                 // 返回调试信息（只返回调试数据）
                 let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
                     client_request: serde_json::Value::Null,
+                    client_ip: String::new(),
+                    client_url: String::new(),
                     endpoint: String::new(),
+                    upstream_url: String::new(),
                     upstream_request: serde_json::Value::Null,
                     upstream_response: serde_json::Value::Null,
                 });
@@ -318,6 +350,17 @@ async fn messages(
         }));
     }
 
+    // 提取客户端信息
+    let client_ip = req.peer_addr()
+        .map(|p| p.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let client_url = format!(
+        "{}://{}{}",
+        req.connection_info().scheme(),
+        req.connection_info().host(),
+        req.uri().path()
+    );
+
     // 直接转发到上游的 /v1/messages 端点
     let original_body = body.into_inner();
 
@@ -326,6 +369,8 @@ async fn messages(
         "POST".to_string(),
         "/v1/messages".to_string(),
         original_body,
+        client_ip,
+        client_url,
         Some(state.debug_data.data.clone()),
         Some(state.stream_hub.sender.clone()),
     ).await {
@@ -334,7 +379,10 @@ async fn messages(
                 // 返回调试信息（只返回调试数据）
                 let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
                     client_request: serde_json::Value::Null,
+                    client_ip: String::new(),
+                    client_url: String::new(),
                     endpoint: String::new(),
+                    upstream_url: String::new(),
                     upstream_request: serde_json::Value::Null,
                     upstream_response: serde_json::Value::Null,
                 });

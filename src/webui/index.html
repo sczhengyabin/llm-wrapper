@@ -730,16 +730,18 @@
         </div>
         <div class="debug-tabs">
             <button class="debug-tab active" onclick="switchDebugTab('client')">客户端请求</button>
-            <button class="debug-tab" onclick="switchDebugTab('upstream')">上游请求</button>
+            <button class="debug-tab" onclick="switchDebugTab('upstream')">发送到上游</button>
             <button class="debug-tab" onclick="switchDebugTab('response')">上游响应</button>
         </div>
         <div class="debug-content">
             <div id="debugClient" class="debug-section active">
                 <h5>客户端发送到 Wrapper</h5>
+                <div id="debugClientMeta" style="margin-bottom: 8px; font-size: 12px; color: #888;"></div>
                 <div class="debug-json" id="debugClientJson">{等待请求...}</div>
             </div>
             <div id="debugUpstream" class="debug-section">
                 <h5>Wrapper 发送到上游</h5>
+                <div id="debugUpstreamMeta" style="margin-bottom: 8px; font-size: 12px; color: #888;"></div>
                 <div class="debug-json" id="debugUpstreamJson">{等待请求...}</div>
             </div>
             <div id="debugResponse" class="debug-section">
@@ -975,18 +977,28 @@
 
                 // 更新客户端请求
                 const clientEl = document.getElementById('debugClientJson');
+                const clientMetaEl = document.getElementById('debugClientMeta');
                 if (data.client_request) {
                     clientEl.textContent = JSON.stringify(data.client_request, null, 2);
+                    if (data.client_ip || data.client_url) {
+                        clientMetaEl.textContent = `来源 IP: ${data.client_ip || 'unknown'}  |  URL: ${data.client_url || 'unknown'}`;
+                    }
                 } else {
                     clientEl.textContent = '{等待请求...}';
+                    clientMetaEl.textContent = '';
                 }
 
                 // 更新上游请求
                 const upstreamEl = document.getElementById('debugUpstreamJson');
+                const upstreamMetaEl = document.getElementById('debugUpstreamMeta');
                 if (data.upstream_request) {
                     upstreamEl.textContent = JSON.stringify(data.upstream_request, null, 2);
+                    if (data.upstream_url) {
+                        upstreamMetaEl.textContent = `URL: ${data.upstream_url}`;
+                    }
                 } else {
                     upstreamEl.textContent = '{等待请求...}';
+                    upstreamMetaEl.textContent = '';
                 }
 
                 // 更新上游响应（非流式）
