@@ -48,6 +48,16 @@ pub struct UpstreamConfig {
     /// 是否启用
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 是否支持 OpenAI 协议 (chat/completions, responses)
+    #[serde(default = "default_true")]
+    pub support_openai: bool,
+    /// 是否支持 Anthropic 协议 (messages)
+    #[serde(default = "default_false")]
+    pub support_anthropic: bool,
+}
+
+fn default_false() -> bool {
+    false
 }
 
 fn default_true() -> bool {
@@ -62,6 +72,8 @@ impl UpstreamConfig {
             base_url,
             api_key: None,
             enabled: true,
+            support_openai: true,
+            support_anthropic: false,
         }
     }
 

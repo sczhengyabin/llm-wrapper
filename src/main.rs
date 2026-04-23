@@ -166,6 +166,13 @@ async fn chat_completions(
         None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
     };
 
+    // 检查协议支持
+    if !route.support_openai {
+        return HttpResponse::UnprocessableEntity().json(json!({
+            "error": {"message": "该上游不支持 OpenAI 协议"}
+        }));
+    }
+
     // 代理请求（调试数据在 proxy 内部保存）
     match proxy.proxy_request_with_debug(
         &route,
@@ -224,6 +231,13 @@ async fn responses(
         Some(r) => r,
         None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
     };
+
+    // 检查协议支持
+    if !route.support_openai {
+        return HttpResponse::UnprocessableEntity().json(json!({
+            "error": {"message": "该上游不支持 OpenAI 协议"}
+        }));
+    }
 
     // 直接转发到上游的 /v1/responses 端点
     let original_body = body.into_inner();
@@ -296,6 +310,13 @@ async fn messages(
         Some(r) => r,
         None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
     };
+
+    // 检查协议支持
+    if !route.support_anthropic {
+        return HttpResponse::UnprocessableEntity().json(json!({
+            "error": {"message": "该上游不支持 Anthropic 协议"}
+        }));
+    }
 
     // 直接转发到上游的 /v1/messages 端点
     let original_body = body.into_inner();

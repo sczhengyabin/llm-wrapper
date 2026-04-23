@@ -631,6 +631,56 @@
             font-weight: 600;
             color: #333;
         }
+        /* 协议支持卡片 */
+        .protocol-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .protocol-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 14px 14px 12px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            user-select: none;
+        }
+        .protocol-card:hover {
+            background: #eef0f2;
+            border-color: #d0d5db;
+        }
+        .protocol-card.active {
+            background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%);
+            border-color: #81c784;
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.12);
+        }
+        .protocol-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        .protocol-card-name {
+            font-weight: 600;
+            font-size: 14px;
+            color: #444;
+            transition: color 0.25s ease;
+        }
+        .protocol-card.active .protocol-card-name {
+            color: #2e7d32;
+        }
+        .protocol-card-desc {
+            font-size: 11px;
+            color: #999;
+            transition: color 0.25s ease;
+        }
+        .protocol-card.active .protocol-card-desc {
+            color: #66bb6a;
+        }
+        .protocol-card .switch {
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body>
@@ -725,6 +775,31 @@
                 <div class="form-group">
                     <label>API 密钥</label>
                     <input type="text" id="upstreamApiKey" placeholder="留空表示不需要密钥">
+                </div>
+                <div class="form-group">
+                    <label>协议支持</label>
+                    <div class="protocol-cards">
+                        <div class="protocol-card active" id="openaiProtocolCard" onclick="toggleProtocolCard('openai')">
+                            <div class="protocol-card-header">
+                                <span class="protocol-card-name">OpenAI</span>
+                                <label class="switch" onclick="event.stopPropagation()">
+                                    <input type="checkbox" id="upstreamSupportOpenai" checked onchange="updateProtocolCard('openai')">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="protocol-card-desc">chat/completions, responses</div>
+                        </div>
+                        <div class="protocol-card" id="anthropicProtocolCard" onclick="toggleProtocolCard('anthropic')">
+                            <div class="protocol-card-header">
+                                <span class="protocol-card-name">Anthropic</span>
+                                <label class="switch" onclick="event.stopPropagation()">
+                                    <input type="checkbox" id="upstreamSupportAnthropic" onchange="updateProtocolCard('anthropic')">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="protocol-card-desc">messages</div>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group" style="display: flex; gap: 10px; align-items: stretch;">
                     <button type="button" class="btn btn-primary" onclick="testUpstream()" style="flex: 1;">测试连接</button>
@@ -1032,6 +1107,16 @@
                             <div class="item-title">${escapeHtml(u.name)}</div>
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
                             <div class="item-detail">API Key: ${u.api_key ? (u.api_key.length > 16 ? u.api_key.substring(0, 8) + '******' + u.api_key.substring(u.api_key.length - 8) : u.api_key) : 'none'}</div>
+                            <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_openai !== false ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_openai')">
+                                    OpenAI
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_anthropic === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic')">
+                                    Anthropic
+                                </label>
+                            </div>
                             ${modelsHtml}
                         </div>
                     </div>
@@ -1196,10 +1281,39 @@
             document.getElementById('upstreamName').readOnly = true;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
             document.getElementById('upstreamApiKey').value = u.api_key || '';
+            document.getElementById('upstreamSupportOpenai').checked = u.support_openai !== false;
+            document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic === true;
+            updateProtocolCard('openai');
+            updateProtocolCard('anthropic');
+        }
+
+        // 协议卡片交互
+        function toggleProtocolCard(type) {
+            const checkboxId = type === 'openai' ? 'upstreamSupportOpenai' : 'upstreamSupportAnthropic';
+            const checkbox = document.getElementById(checkboxId);
+            checkbox.checked = !checkbox.checked;
+            updateProtocolCard(type);
+        }
+
+        function updateProtocolCard(type) {
+            const checkboxId = type === 'openai' ? 'upstreamSupportOpenai' : 'upstreamSupportAnthropic';
+            const cardId = type === 'openai' ? 'openaiProtocolCard' : 'anthropicProtocolCard';
+            const checkbox = document.getElementById(checkboxId);
+            const card = document.getElementById(cardId);
+            if (checkbox.checked) {
+                card.classList.add('active');
+            } else {
+                card.classList.remove('active');
+            }
         }
 
         async function toggleUpstream(index) {
             config.upstreams[index].enabled = !config.upstreams[index].enabled;
+            await saveConfig();
+        }
+
+        async function toggleUpstreamProtocol(index, field) {
+            config.upstreams[index][field] = !config.upstreams[index][field];
             await saveConfig();
         }
 
@@ -1457,7 +1571,9 @@
                 name: name,
                 base_url: document.getElementById('upstreamBaseUrl').value,
                 api_key: document.getElementById('upstreamApiKey').value || null,
-                enabled: enabledElement ? enabledElement.checked : true
+                enabled: enabledElement ? enabledElement.checked : true,
+                support_openai: document.getElementById('upstreamSupportOpenai').checked,
+                support_anthropic: document.getElementById('upstreamSupportAnthropic').checked
             };
 
             const index = config.upstreams.findIndex(u => u.name === name);

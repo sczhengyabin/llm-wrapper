@@ -7,12 +7,16 @@ upstreams:
     base_url: http://127.0.0.1:30002
     api_key: null  # 如果不需要密钥，设为 null 或空字符串
     enabled: true
+    support_openai: true      # 支持 OpenAI 协议 (chat/completions, responses)
+    support_anthropic: false   # 不支持 Anthropic 协议 (messages)
 
   # 上游 2: OpenAI 兼容服务
   - name: omlx
     base_url: http://127.0.0.1:8080
     api_key: your-api-key-here
     enabled: true
+    support_openai: true
+    support_anthropic: false
 
 aliases:
   # 别名 1: 简单别名，直接映射到上游模型

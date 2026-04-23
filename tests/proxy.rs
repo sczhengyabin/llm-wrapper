@@ -12,6 +12,8 @@ fn create_test_route(
         target_model: "gpt-4-turbo".to_string(),
         override_params,
         default_params,
+        support_openai: true,
+        support_anthropic: false,
     }
 }
 

@@ -64,6 +64,8 @@ fn test_save_and_load_config() {
             base_url: "http://localhost:8080".to_string(),
             api_key: Some("key".to_string()),
             enabled: true,
+            support_openai: true,
+            support_anthropic: false,
         }],
         aliases: vec![ModelAlias {
             alias: "alias1".to_string(),
@@ -94,6 +96,8 @@ fn test_save_config_with_param_overrides() {
             base_url: "http://localhost:8080".to_string(),
             api_key: None,
             enabled: true,
+            support_openai: true,
+            support_anthropic: false,
         }],
         aliases: vec![ModelAlias {
             alias: "my-model".to_string(),

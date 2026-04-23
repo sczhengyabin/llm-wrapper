@@ -15,6 +15,10 @@ pub struct RouteResult {
     pub override_params: HashMap<String, serde_json::Value>,
     /// 需要作为默认值的参数（default 模式）
     pub default_params: HashMap<String, serde_json::Value>,
+    /// 是否支持 OpenAI 协议
+    pub support_openai: bool,
+    /// 是否支持 Anthropic 协议
+    pub support_anthropic: bool,
 }
 
 /// 路由器，处理模型到上游的映射
@@ -49,6 +53,8 @@ impl ModelRouter {
                 target_model: model.to_string(),
                 override_params: HashMap::new(),
                 default_params: HashMap::new(),
+                support_openai: upstream.support_openai,
+                support_anthropic: upstream.support_anthropic,
             });
         }
 
@@ -85,6 +91,8 @@ impl ModelRouter {
             target_model: alias.target_model.clone(),
             override_params,
             default_params,
+            support_openai: upstream.support_openai,
+            support_anthropic: upstream.support_anthropic,
         })
     }
 
