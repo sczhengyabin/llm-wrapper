@@ -461,7 +461,7 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                     "id": a.alias,
                     "object": "model",
                     "created": 0,
-                    "owned_by": "llm-wrapper",
+                    "owned_by": a.upstream,
                     "max_model_len": len
                 })
             } else {
@@ -469,7 +469,7 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                     "id": a.alias,
                     "object": "model",
                     "created": 0,
-                    "owned_by": "llm-wrapper"
+                    "owned_by": a.upstream
                 })
             }
         })
