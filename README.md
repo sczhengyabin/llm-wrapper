@@ -63,8 +63,7 @@ docker build -t llm-wrapper:latest .
 ### 环境变量
 
 - `CONFIG_PATH` - 配置文件路径（默认：config.yaml）
-- `BIND_ADDR` - 监听地址（默认：127.0.0.1:3000）
-- `ADMIN_API_KEY` - 管理接口认证密钥（可选）
+- `BIND_ADDR` - 监听地址（默认：0.0.0.0:3000）
 
 ## 配置示例
 
@@ -75,6 +74,9 @@ upstreams:
     base_url: http://192.168.100.7:30002
     api_key: null  # 或 "your-api-key"
     enabled: true
+    support_openai: true      # 支持 OpenAI 协议 (chat/completions, responses)
+    support_anthropic: false   # 不支持 Anthropic 协议 (messages)
+    # models_url: http://192.168.100.7:30002/v1/models  # 可选，默认 {base_url}/v1/models
 
 # 模型别名配置
 aliases:
@@ -237,6 +239,9 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 
 响应包含：
 - `client_request`：客户端发送到 Wrapper 的原始请求
+- `client_ip`：客户端来源 IP
+- `client_url`：客户端请求 URL
 - `endpoint`：调用的端点
+- `upstream_url`：上游请求 URL
 - `upstream_request`：Wrapper 发送到上游的请求（已应用参数覆盖）
 - `upstream_response`：上游返回的响应
