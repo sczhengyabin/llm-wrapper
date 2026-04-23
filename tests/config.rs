@@ -73,6 +73,7 @@ fn test_save_and_load_config() {
             upstream: "test".to_string(),
             param_overrides: vec![],
             source: ModelAliasSource::Manual,
+            max_model_len: None,
         }],
     };
 
@@ -109,6 +110,7 @@ fn test_save_config_with_param_overrides() {
                 mode: OverrideMode::Default,
             }],
             source: ModelAliasSource::Manual,
+            max_model_len: None,
         }],
     };
 

@@ -28,6 +28,7 @@ fn test_model_alias_with_source() {
         upstream: "upstream1".to_string(),
         param_overrides: vec![],
         source: ModelAliasSource::Auto,
+        max_model_len: None,
     };
 
     let serialized = serde_json::to_string(&alias).unwrap();

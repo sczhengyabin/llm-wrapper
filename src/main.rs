@@ -388,22 +388,103 @@ async fn debug_stream(
 }
 
 async fn list_models(state: web::Data<AppState>) -> HttpResponse {
-    use crate::router::ModelRouter;
+    let config = state.config.get_config().await;
+    let aliases = config.aliases;
 
-    let router = ModelRouter::new(state.config.clone());
-    let models = router.get_models().await;
+    // 收集需要查询的上游（去重）
+    let unique_upstreams: std::collections::HashSet<_> =
+        aliases.iter().map(|a| a.upstream.as_str()).collect();
 
-    let model_objects: Vec<_> = models
+    // 构建 (upstream_name, target_model) -> max_model_len 的查找表
+    let mut model_len_map: std::collections::HashMap<(String, String), u32> =
+        std::collections::HashMap::new();
+
+    for upstream_name in unique_upstreams {
+        let u = if let Some(up) = config
+            .upstreams
+            .iter()
+            .find(|up| up.name == upstream_name && up.enabled)
+        {
+            up
+        } else {
+            continue;
+        };
+
+        let url = format!("{}/v1/models", u.base_url);
+        let mut request = reqwest::Client::new()
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(2));
+        if let Some(api_key) = &u.api_key {
+            if api_key != "none" && !api_key.is_empty() {
+                request = request.bearer_auth(api_key);
+            }
+        }
+
+        match request.send().await {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(body) => {
+                    if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+                        for model in data {
+                            if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
+                                if let Some(max_len) = model
+                                    .get("max_model_len")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|v| v as u32)
+                                {
+                                    model_len_map
+                                        .insert((u.name.clone(), id.to_string()), max_len);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("解析上游 {} 模型列表失败：{}", upstream_name, e);
+                }
+            },
+            Err(e) => {
+                tracing::warn!("获取上游 {} 模型列表失败：{}", upstream_name, e);
+            }
+        }
+    }
+
+    // 构建响应，同时收集需要更新的 aliases
+    let mut changed = false;
+    let model_objects: Vec<_> = aliases
         .iter()
-        .map(|m| {
-            json!({
-                "id": m,
-                "object": "model",
-                "created": 0,
-                "owned_by": "llm-wrapper"
-            })
+        .map(|a| {
+            if let Some(&len) = model_len_map.get(&(a.upstream.clone(), a.target_model.clone())) {
+                if a.max_model_len != Some(len) {
+                    changed = true;
+                }
+                json!({
+                    "id": a.alias,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "llm-wrapper",
+                    "max_model_len": len
+                })
+            } else {
+                json!({
+                    "id": a.alias,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "llm-wrapper"
+                })
+            }
         })
         .collect();
+
+    // 如果 max_model_len 有变化，更新配置持久化
+    if changed {
+        let mut cfg = state.config.get_config().await;
+        for a in &mut cfg.aliases {
+            if let Some(&len) = model_len_map.get(&(a.upstream.clone(), a.target_model.clone())) {
+                a.max_model_len = Some(len);
+            }
+        }
+        let _ = state.config.update_config(cfg).await;
+    }
 
     HttpResponse::Ok().json(json!({
         "object": "list",
@@ -510,6 +591,7 @@ async fn create_upstream_model_alias(
         upstream: upstream.name.clone(),
         param_overrides: vec![],
         source: ModelAliasSource::Auto,
+        max_model_len: None,
     });
 
     // 保存配置

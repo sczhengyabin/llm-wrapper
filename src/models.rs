@@ -99,6 +99,9 @@ pub struct ModelAlias {
     /// 来源类型
     #[serde(default)]
     pub source: ModelAliasSource,
+    /// 最大上下文长度（从上游自动获取，也可手动设置）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_model_len: Option<u32>,
 }
 
 impl ModelAlias {
@@ -110,6 +113,7 @@ impl ModelAlias {
             upstream,
             param_overrides: Vec::new(),
             source: ModelAliasSource::Manual,
+            max_model_len: None,
         }
     }
 }
