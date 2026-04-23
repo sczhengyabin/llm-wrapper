@@ -29,7 +29,7 @@ cargo build --release
 
 ### Docker 部署
 
-**使用 Docker 运行：**
+**使用 Docker 运行（推荐）：**
 
 ```bash
 docker run -d \
@@ -38,7 +38,7 @@ docker run -d \
   -v $(pwd)/config:/app/config \
   -e BIND_ADDR=0.0.0.0:3000 \
   -e CONFIG_PATH=/app/config/config.yaml \
-  llm-wrapper:latest
+  sczhengyabin/llm-wrapper:latest
 ```
 
 **使用 docker-compose：**
@@ -54,7 +54,7 @@ docker-compose logs -f
 docker-compose down
 ```
 
-**构建镜像：**
+**本地构建镜像（可选）：**
 
 ```bash
 docker build -t llm-wrapper:latest .
