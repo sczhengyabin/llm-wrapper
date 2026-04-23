@@ -54,6 +54,9 @@ pub struct UpstreamConfig {
     /// 是否支持 Anthropic 协议 (messages)
     #[serde(default = "default_false")]
     pub support_anthropic: bool,
+    /// 获取模型列表的 URL（默认 {base_url}/v1/models）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models_url: Option<String>,
 }
 
 fn default_false() -> bool {
@@ -74,6 +77,7 @@ impl UpstreamConfig {
             enabled: true,
             support_openai: true,
             support_anthropic: false,
+            models_url: None,
         }
     }
 
@@ -81,6 +85,15 @@ impl UpstreamConfig {
     #[allow(dead_code)]
     pub fn id(&self) -> &str {
         &self.name
+    }
+
+    /// 获取模型列表 URL
+    pub fn get_models_url(&self) -> String {
+        if let Some(url) = &self.models_url {
+            url.clone()
+        } else {
+            format!("{}/v1/models", self.base_url)
+        }
     }
 }
 

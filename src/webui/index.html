@@ -779,6 +779,11 @@
                     <input type="text" id="upstreamApiKey" placeholder="留空表示不需要密钥">
                 </div>
                 <div class="form-group">
+                    <label>Models URL</label>
+                    <input type="text" id="upstreamModelsUrl" placeholder="留空则使用 {base_url}/v1/models">
+                    <div style="font-size: 12px; color: #999; margin-top: 4px;">用于获取上游模型列表，默认 {base_url}/v1/models</div>
+                </div>
+                <div class="form-group">
                     <label>协议支持</label>
                     <div class="protocol-cards">
                         <div class="protocol-card active" id="openaiProtocolCard" onclick="toggleProtocolCard('openai')">
@@ -1254,7 +1259,8 @@
             showStatus('正在测试连接...', 'loading');
 
             try {
-                const url = `${baseUrl}/v1/models`;
+                const modelsUrl = document.getElementById('upstreamModelsUrl').value;
+                const url = modelsUrl ? modelsUrl : `${baseUrl}/v1/models`;
                 const headers = {};
                 const apiKey = document.getElementById('upstreamApiKey').value;
                 if (apiKey && apiKey !== 'none' && apiKey.trim() !== '') {
@@ -1295,6 +1301,7 @@
             document.getElementById('upstreamApiKey').value = u.api_key || '';
             document.getElementById('upstreamSupportOpenai').checked = u.support_openai !== false;
             document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic === true;
+            document.getElementById('upstreamModelsUrl').value = u.models_url || '';
             updateProtocolCard('openai');
             updateProtocolCard('anthropic');
         }
@@ -1387,8 +1394,8 @@
                 return;
             }
 
-            // 直接请求该上游的 /v1/models
-            let url = `${upstream.base_url}/v1/models`;
+            // 直接请求该上游的 models URL
+            let url = upstream.models_url || `${upstream.base_url}/v1/models`;
             const headers = {};
             if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
                 headers['Authorization'] = `Bearer ${upstream.api_key}`;
@@ -1447,7 +1454,7 @@
                 // 找到当前选择的上游配置
                 const upstream = config.upstreams.find(u => u.name === a.upstream);
                 if (upstream) {
-                    let url = `${upstream.base_url}/v1/models`;
+                    let url = upstream.models_url || `${upstream.base_url}/v1/models`;
                     const headers = {};
                     if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
                         headers['Authorization'] = `Bearer ${upstream.api_key}`;
@@ -1585,7 +1592,8 @@
                 api_key: document.getElementById('upstreamApiKey').value || null,
                 enabled: enabledElement ? enabledElement.checked : true,
                 support_openai: document.getElementById('upstreamSupportOpenai').checked,
-                support_anthropic: document.getElementById('upstreamSupportAnthropic').checked
+                support_anthropic: document.getElementById('upstreamSupportAnthropic').checked,
+                models_url: document.getElementById('upstreamModelsUrl').value || undefined
             };
 
             const index = config.upstreams.findIndex(u => u.name === name);
@@ -1605,7 +1613,7 @@
 
         // 获取上游模型列表并缓存
         async function fetchUpstreamModels(upstream) {
-            let url = `${upstream.base_url}/v1/models`;
+            let url = upstream.models_url || `${upstream.base_url}/v1/models`;
             const headers = {};
             if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
                 headers['Authorization'] = `Bearer ${upstream.api_key}`;

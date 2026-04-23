@@ -458,7 +458,7 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
             continue;
         };
 
-        let url = format!("{}/v1/models", u.base_url);
+        let url = u.get_models_url();
         let mut request = reqwest::Client::new()
             .get(&url)
             .timeout(std::time::Duration::from_secs(2));
@@ -550,8 +550,8 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
             continue;
         }
 
-        // 直接使用 reqwest 发送 GET 请求到上游的 /v1/models
-        let url = format!("{}/v1/models", upstream.base_url);
+        // 直接使用 reqwest 发送 GET 请求到上游的 models URL
+        let url = upstream.get_models_url();
         let mut request = reqwest::Client::new().get(&url);
 
         // 添加 API 密钥（如果有）
