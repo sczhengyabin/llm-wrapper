@@ -7,6 +7,7 @@ use llm_wrapper::proxy::DebugInfo;
 
 use actix_files as fs;
 use actix_web::{web, App, HttpServer, HttpResponse, middleware, Error};
+use actix_cors::Cors;
 use config::ConfigManager;
 use models::AppConfig;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -100,6 +101,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(state.clone())
             .app_data(web::JsonConfig::default().limit(32 * 1024 * 1024)) // 32MB，支持 256K token 上下文
             .wrap(middleware::Logger::default())
+            .wrap(Cors::permissive().max_age(3600))
             // 配置 API
             .route("/api/config", web::get().to(get_config))
             .route("/api/config", web::put().to(update_config))
