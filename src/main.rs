@@ -443,55 +443,62 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
     let unique_upstreams: std::collections::HashSet<_> =
         aliases.iter().map(|a| a.upstream.as_str()).collect();
 
+    // 并发获取所有上游的模型列表
+    let futures: Vec<_> = unique_upstreams
+        .iter()
+        .filter_map(|upstream_name| {
+            let up = config.upstreams.iter().find(|up| up.name == *upstream_name && up.enabled)?;
+            Some(async move {
+                let url = up.get_models_url();
+                let mut request = reqwest::Client::new()
+                    .get(&url)
+                    .timeout(std::time::Duration::from_secs(2));
+                if let Some(api_key) = &up.api_key {
+                    if api_key != "none" && !api_key.is_empty() {
+                        request = request.bearer_auth(api_key);
+                    }
+                }
+
+                match request.send().await {
+                    Ok(resp) => match resp.json::<serde_json::Value>().await {
+                        Ok(body) => {
+                            let mut models = Vec::new();
+                            if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+                                for model in data {
+                                    if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
+                                        let max_len = model
+                                            .get("max_model_len")
+                                            .and_then(|v| v.as_u64())
+                                            .map(|v| v as u32);
+                                        models.push((up.name.clone(), id.to_string(), max_len));
+                                    }
+                                }
+                            }
+                            models
+                        }
+                        Err(e) => {
+                            tracing::warn!("解析上游 {} 模型列表失败：{}", upstream_name, e);
+                            Vec::new()
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!("获取上游 {} 模型列表失败：{}", upstream_name, e);
+                        Vec::new()
+                    }
+                }
+            })
+        })
+        .collect();
+
+    let results = futures::future::join_all(futures).await;
+
     // 构建 (upstream_name, target_model) -> max_model_len 的查找表
     let mut model_len_map: std::collections::HashMap<(String, String), u32> =
         std::collections::HashMap::new();
-
-    for upstream_name in unique_upstreams {
-        let u = if let Some(up) = config
-            .upstreams
-            .iter()
-            .find(|up| up.name == upstream_name && up.enabled)
-        {
-            up
-        } else {
-            continue;
-        };
-
-        let url = u.get_models_url();
-        let mut request = reqwest::Client::new()
-            .get(&url)
-            .timeout(std::time::Duration::from_secs(2));
-        if let Some(api_key) = &u.api_key {
-            if api_key != "none" && !api_key.is_empty() {
-                request = request.bearer_auth(api_key);
-            }
-        }
-
-        match request.send().await {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(body) => {
-                    if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
-                        for model in data {
-                            if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
-                                if let Some(max_len) = model
-                                    .get("max_model_len")
-                                    .and_then(|v| v.as_u64())
-                                    .map(|v| v as u32)
-                                {
-                                    model_len_map
-                                        .insert((u.name.clone(), id.to_string()), max_len);
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("解析上游 {} 模型列表失败：{}", upstream_name, e);
-                }
-            },
-            Err(e) => {
-                tracing::warn!("获取上游 {} 模型列表失败：{}", upstream_name, e);
+    for models in results {
+        for (upstream, id, max_len) in models {
+            if let Some(len) = max_len {
+                model_len_map.insert((upstream, id), len);
             }
         }
     }
@@ -542,42 +549,47 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
 
 async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
     let config = state.config.get_config().await;
-    let mut all_models = Vec::new();
 
-    // 遍历所有启用的上游，获取它们的模型列表
-    for upstream in &config.upstreams {
-        if !upstream.enabled {
-            continue;
-        }
-
-        // 直接使用 reqwest 发送 GET 请求到上游的 models URL
-        let url = upstream.get_models_url();
-        let mut request = reqwest::Client::new().get(&url);
-
-        // 添加 API 密钥（如果有）
-        if let Some(api_key) = &upstream.api_key {
-            if api_key != "none" && !api_key.is_empty() {
-                request = request.bearer_auth(api_key);
+    // 并发获取所有启用上游的模型列表
+    let futures: Vec<_> = config.upstreams
+        .iter()
+        .filter(|u| u.enabled)
+        .map(|upstream| {
+            let url = upstream.get_models_url();
+            let name = upstream.name.clone();
+            let mut request = reqwest::Client::new().get(&url);
+            if let Some(api_key) = &upstream.api_key {
+                if api_key != "none" && !api_key.is_empty() {
+                    request = request.bearer_auth(api_key);
+                }
             }
-        }
 
-        match request.send().await {
-            Ok(resp) => {
-                if let Ok(body) = resp.json::<serde_json::Value>().await {
-                    if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
-                        for model in data {
-                            if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
-                                all_models.push(id.to_string());
+            async move {
+                match request.send().await {
+                    Ok(resp) => {
+                        let mut models = Vec::new();
+                        if let Ok(body) = resp.json::<serde_json::Value>().await {
+                            if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+                                for model in data {
+                                    if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
+                                        models.push(id.to_string());
+                                    }
+                                }
                             }
                         }
+                        models
+                    }
+                    Err(e) => {
+                        tracing::warn!("获取上游 {} 模型列表失败：{}", name, e);
+                        Vec::new()
                     }
                 }
             }
-            Err(e) => {
-                tracing::warn!("获取上游 {} 模型列表失败：{}", upstream.name, e);
-            }
-        }
-    }
+        })
+        .collect();
+
+    let results = futures::future::join_all(futures).await;
+    let all_models: Vec<String> = results.into_iter().flatten().collect();
 
     HttpResponse::Ok().json(json!({
         "object": "list",
