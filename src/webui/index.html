@@ -560,6 +560,19 @@
             background: #4d4d4d;
             color: #fff;
         }
+        .debug-copy-btn {
+            background: #3d3d3d;
+            color: #aaa;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .debug-copy-btn:hover {
+            background: #4d4d4d;
+            color: #fff;
+        }
         .refresh-btn {
             min-width: 80px;
         }
@@ -756,7 +769,10 @@
                 <input type="checkbox" id="streamMonitorToggle" onchange="toggleStreamMonitor()">
                 <span data-i18n="debug_stream_monitor">监听流式响应</span>
             </label>
-            <button class="debug-clear" data-i18n="debug_clear" onclick="clearDebugData()">清空数据</button>
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <button class="debug-copy-btn" data-i18n="debug_copy" onclick="copyCurrentDebugTab(this)">复制</button>
+                <button class="debug-clear" data-i18n="debug_clear" onclick="clearDebugData()">清空数据</button>
+            </div>
         </div>
     </div>
 
@@ -934,6 +950,8 @@
                 debug_waiting: "{等待请求...}",
                 debug_waiting_response: "{等待响应...}",
                 debug_stream_monitor: "监听流式响应",
+                debug_copy: "复制",
+                debug_copied: "已复制!",
                 debug_clear: "清空数据",
                 debug_source_ip: "来源 IP: ",
                 debug_url: "URL: ",
@@ -1029,6 +1047,8 @@
                 debug_waiting: "{Waiting...}",
                 debug_waiting_response: "{Waiting for response...}",
                 debug_stream_monitor: "Monitor Stream Response",
+                debug_copy: "Copy",
+                debug_copied: "Copied!",
                 debug_clear: "Clear Data",
                 debug_source_ip: "Source IP: ",
                 debug_url: "URL: ",
@@ -1182,6 +1202,30 @@
             event.target.classList.add('active');
             document.querySelectorAll('.debug-section').forEach(s => s.classList.remove('active'));
             document.getElementById('debug' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+        }
+
+        function copyCurrentDebugTab(btn) {
+            const activeSection = document.querySelector('.debug-section.active');
+            if (!activeSection) return;
+            const el = activeSection.querySelector('.debug-json');
+            if (!el) return;
+            const text = el.textContent;
+            if (!text || text.startsWith('{等待') || text.startsWith('{Waiting')) return;
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                const orig = btn.textContent;
+                btn.textContent = t('debug_copied');
+                setTimeout(() => { btn.textContent = orig; }, 1500);
+            } catch(e) {
+                console.error('Copy failed:', e);
+            }
         }
 
         async function clearDebugData() {
