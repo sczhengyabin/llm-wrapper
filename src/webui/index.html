@@ -115,9 +115,15 @@
             border-radius: 4px;
             font-size: 14px;
         }
-        .form-group input:focus, .form-group select:focus {
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
             outline: none;
             border-color: #007bff;
+        }
+        .form-group .form-hint {
+            display: block;
+            margin-top: 4px;
+            font-size: 12px;
+            color: #888;
         }
         .form-group .input-group {
             display: flex;
@@ -690,6 +696,77 @@
         .protocol-card .switch {
             flex-shrink: 0;
         }
+        .auth-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .auth-badge.api-key {
+            background: #d4edda;
+            color: #155724;
+        }
+        .auth-badge.oauth {
+            background: #cce5ff;
+            color: #004085;
+        }
+        .token-status {
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .token-status.valid {
+            color: #28a745;
+        }
+        .token-status.expiring {
+            color: #ffc107;
+        }
+        .token-status.expired {
+            color: #dc3545;
+        }
+        .token-status.no-token {
+            color: #999;
+        }
+        .oauth-login-modal-body {
+            text-align: center;
+            padding: 20px;
+        }
+        .oauth-login-modal-body .user-code {
+            font-size: 32px;
+            font-weight: 700;
+            font-family: monospace;
+            letter-spacing: 4px;
+            color: #007bff;
+            margin: 15px 0;
+            user-select: all;
+        }
+        .oauth-login-modal-body .verify-url {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .oauth-login-modal-body .verify-url a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .oauth-login-modal-body .verify-url a:hover {
+            text-decoration: underline;
+        }
+        .oauth-login-modal-body .instructions {
+            text-align: left;
+            max-width: 400px;
+            margin: 0 auto 20px;
+            color: #555;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+        .oauth-login-modal-body .action-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        }
     </style>
 </head>
 <body>
@@ -789,48 +866,77 @@
                     <input type="text" id="upstreamName" required data-i18n-placeholder="upstream_name_placeholder" placeholder="上游名称（用作唯一标识）">
                 </div>
                 <div class="form-group">
-                    <label data-i18n="upstream_baseurl_label">基础 URL *</label>
+                    <label data-i18n="upstream_auth_type_label">认证方式 *</label>
+                    <select id="upstreamAuthType" onchange="toggleAuthFields()">
+                        <option value="api_key" data-i18n="auth_api_key">API Key</option>
+                        <option value="codex" data-i18n="auth_codex">Codex (ChatGPT OAuth)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="upstream_baseurl_label">基础 URL</label>
                     <input type="text" id="upstreamBaseUrl" required placeholder="http://example.com:3000">
                 </div>
-                <div class="form-group">
-                    <label data-i18n="upstream_apikey_label">API 密钥</label>
-                    <input type="text" id="upstreamApiKey" data-i18n-placeholder="upstream_apikey_placeholder" placeholder="留空表示不需要密钥">
+                <div id="apiKeyFields">
+                    <div class="form-group">
+                        <label data-i18n="upstream_apikey_label">API 密钥</label>
+                        <input type="text" id="upstreamApiKey" data-i18n-placeholder="upstream_apikey_placeholder" placeholder="留空表示不需要密钥">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label data-i18n="upstream_modelsurl_label">Models URL</label>
-                    <input type="text" id="upstreamModelsUrl" data-i18n-placeholder="upstream_modelsurl_placeholder" placeholder="留空则使用 {base_url}/v1/models">
-                    <div style="font-size: 12px; color: #999; margin-top: 4px;" data-i18n="upstream_modelsurl_hint">用于获取上游模型列表，默认 {base_url}/v1/models</div>
+                <div id="codexFields" style="display: none;">
+                    <div style="padding: 10px; background: #f0f7ff; border-radius: 4px; font-size: 13px; color: #555;">
+                        <div data-i18n="codex_info">Codex 使用 ChatGPT 后端 API，登录完成后自动获取 Token。基础 URL 已自动设置为 chatgpt.com 后端地址。</div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label data-i18n="upstream_protocol_label">协议支持</label>
-                    <div class="protocol-cards">
-                        <div class="protocol-card active" id="openaiProtocolCard" onclick="toggleProtocolCard('openai')">
-                            <div class="protocol-card-header">
-                                <span class="protocol-card-name">OpenAI</span>
-                                <label class="switch" onclick="event.stopPropagation()">
-                                    <input type="checkbox" id="upstreamSupportOpenai" checked onchange="updateProtocolCard('openai')">
-                                    <span class="slider"></span>
-                                </label>
+                <div id="commonFields">
+                    <div class="form-group">
+                        <label data-i18n="upstream_modelsurl_label">Models URL</label>
+                        <input type="text" id="upstreamModelsUrl" data-i18n-placeholder="upstream_modelsurl_placeholder" placeholder="留空则使用默认值">
+                        <div style="font-size: 12px; color: #999; margin-top: 4px;" data-i18n="upstream_modelsurl_hint">用于获取上游模型列表</div>
+                    </div>
+                    <div class="form-group" id="protocolGroup">
+                        <label data-i18n="upstream_protocol_label">协议支持</label>
+                        <div class="protocol-cards">
+                            <div class="protocol-card active" id="openaiProtocolCard" onclick="toggleProtocolCard('openai')">
+                                <div class="protocol-card-header">
+                                    <span class="protocol-card-name">OpenAI</span>
+                                    <label class="switch" onclick="event.stopPropagation()">
+                                        <input type="checkbox" id="upstreamSupportOpenai" checked onchange="updateProtocolCard('openai')">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="protocol-card-desc">chat/completions, responses</div>
                             </div>
-                            <div class="protocol-card-desc">chat/completions, responses</div>
-                        </div>
-                        <div class="protocol-card" id="anthropicProtocolCard" onclick="toggleProtocolCard('anthropic')">
-                            <div class="protocol-card-header">
-                                <span class="protocol-card-name">Anthropic</span>
-                                <label class="switch" onclick="event.stopPropagation()">
-                                    <input type="checkbox" id="upstreamSupportAnthropic" onchange="updateProtocolCard('anthropic')">
-                                    <span class="slider"></span>
-                                </label>
+                            <div class="protocol-card" id="anthropicProtocolCard" onclick="toggleProtocolCard('anthropic')">
+                                <div class="protocol-card-header">
+                                    <span class="protocol-card-name">Anthropic</span>
+                                    <label class="switch" onclick="event.stopPropagation()">
+                                        <input type="checkbox" id="upstreamSupportAnthropic" onchange="updateProtocolCard('anthropic')">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="protocol-card-desc">messages</div>
                             </div>
-                            <div class="protocol-card-desc">messages</div>
                         </div>
                     </div>
                 </div>
                 <div class="form-group" style="display: flex; gap: 10px; align-items: stretch;">
-                    <button type="button" class="btn btn-primary" data-i18n="btn_test_connection" onclick="testUpstream()" style="flex: 1;">测试连接</button>
+                    <button type="button" class="btn btn-primary" id="testConnectionBtn" data-i18n="btn_test_connection" onclick="testUpstream()" style="flex: 1;">测试连接</button>
                     <button type="submit" class="btn btn-success save-btn" data-i18n="btn_save" style="flex: 1;">保存</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- OAuth Login Modal -->
+    <div class="modal" id="oauthLoginModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>OAuth 登录</h3>
+                <button class="close-btn" onclick="closeOAuthLoginModal()">&times;</button>
+            </div>
+            <div class="oauth-login-modal-body" id="oauthLoginBody">
+                <div class="loading">发起登录中...</div>
+            </div>
         </div>
     </div>
 
@@ -855,9 +961,9 @@
                 </div>
                 <div class="form-group">
                     <label data-i18n="alias_target_label">目标模型 *</label>
-                    <select id="aliasTargetSelect" disabled>
-                        <option value="" data-i18n="alias_pick_upstream_first">-- 请先选择上游 --</option>
-                    </select>
+                    <input type="text" id="aliasTargetSelect" list="aliasTargetDatalist" disabled required placeholder="-- 请先选择上游 --" autocomplete="off">
+                    <datalist id="aliasTargetDatalist"></datalist>
+                    <small class="form-hint" data-i18n="alias_target_hint">可从列表中选择一个模型，或直接输入任意模型名</small>
                 </div>
                 <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -934,8 +1040,10 @@
                 alias_no_params: "暂无参数设置",
                 alias_loading: "加载中...",
                 alias_upstream_not_found: "上游不存在",
-                alias_no_models: "该上游没有返回模型列表",
-                alias_load_failed: "加载失败",
+                alias_no_models: "该上游没有返回模型列表，请直接输入模型名",
+                alias_load_failed: "加载失败，请直接输入模型名",
+                alias_target_hint: "可从列表中选择一个模型，或直接输入任意模型名",
+                alias_target_placeholder: "输入模型名，如 gpt-5.2-codex",
                 param_key_placeholder: "参数名",
                 param_value_placeholder: "参数值",
                 param_mode_default: "默认",
@@ -977,6 +1085,23 @@
                 status_created_alias: (n) => `已创建 auto alias: ${n}`,
                 mode_default: "默认",
                 mode_override: "覆盖",
+                upstream_auth_type_label: "认证方式",
+                auth_api_key: "API Key",
+                auth_codex: "Codex (ChatGPT OAuth)",
+                codex_info: "Codex 使用 ChatGPT 后端 API，登录完成后自动获取 Token。基础 URL 已自动设置为 chatgpt.com 后端地址。",
+                oauth_login: "登录",
+                oauth_logout: "登出",
+                oauth_relogin: "重新登录",
+                oauth_logged_in: "已登录",
+                oauth_not_logged_in: "未登录",
+                oauth_logining: "登录中...",
+                oauth_instructions_1: "1. 打开以下网址（或在已登录的设备上访问）",
+                oauth_instructions_2: "2. 输入验证码",
+                oauth_instructions_3: "3. 等待授权完成（有效期 15 分钟）",
+                oauth_copy_code: "复制验证码",
+                oauth_open_url: "打开登录页面",
+                oauth_login_first: "请先完成登录",
+                oauth_code_copied: "已复制!",
             },
             en: {
                 page_title: "LLM Wrapper Config",
@@ -1031,8 +1156,10 @@
                 alias_no_params: "No parameter settings",
                 alias_loading: "Loading...",
                 alias_upstream_not_found: "Upstream not found",
-                alias_no_models: "This upstream returned no models",
-                alias_load_failed: "Load failed",
+                alias_no_models: "No models returned, type model name directly",
+                alias_load_failed: "Load failed, type model name directly",
+                alias_target_hint: "Select from the list or type any model name",
+                alias_target_placeholder: "Type model name, e.g. gpt-5.2-codex",
                 param_key_placeholder: "Parameter name",
                 param_value_placeholder: "Parameter value",
                 param_mode_default: "Default",
@@ -1063,7 +1190,7 @@
                 status_connected: (n) => `Connected! Upstream returned ${n} models.`,
                 status_connect_failed: (s) => `Connection failed: HTTP ${s}`,
                 status_connect_error: (e) => `Connection failed: ${e}`,
-                status_select_model: "Please select a target model",
+                status_select_model: "Please select or type a target model",
                 status_alias_exists: (n) => `Alias "${n}" already exists, please change it`,
                 status_alias_exists_create: (n) => `Alias "${n}" already exists, cannot create`,
                 status_delete_failed: "Delete failed: ",
@@ -1074,6 +1201,23 @@
                 status_created_alias: (n) => `Created auto alias: ${n}`,
                 mode_default: "default",
                 mode_override: "override",
+                upstream_auth_type_label: "Auth Type",
+                auth_api_key: "API Key",
+                auth_codex: "Codex (ChatGPT OAuth)",
+                codex_info: "Codex uses ChatGPT backend API. Token is obtained automatically after login. Base URL is auto-set to chatgpt.com backend.",
+                oauth_login: "Login",
+                oauth_logout: "Logout",
+                oauth_relogin: "Re-login",
+                oauth_logged_in: "Logged in",
+                oauth_not_logged_in: "Not logged in",
+                oauth_logining: "Logging in...",
+                oauth_instructions_1: "1. Open the following URL (or visit on a logged-in device)",
+                oauth_instructions_2: "2. Enter the verification code",
+                oauth_instructions_3: "3. Wait for authorization (valid for 15 minutes)",
+                oauth_copy_code: "Copy code",
+                oauth_open_url: "Open login page",
+                oauth_login_first: "Please login first",
+                oauth_code_copied: "Copied!",
             }
         };
 
@@ -1616,9 +1760,11 @@
             editingAliasIndex = -1;
             renderParamOverrides([]);
             updateUpstreamSelect();
-            const select = document.getElementById('aliasTargetSelect');
-            select.innerHTML = `<option value="">${t('alias_pick_upstream_first')}</option>`;
-            select.disabled = true;
+            const input = document.getElementById('aliasTargetSelect');
+            input.value = '';
+            input.placeholder = t('alias_pick_upstream_first');
+            input.disabled = true;
+            document.getElementById('aliasTargetDatalist').innerHTML = '';
         }
 
         function closeAliasModal() {
@@ -1676,7 +1822,7 @@
             }
         }
 
-        function editAlias(index) {
+        async function editAlias(index) {
             const a = config.aliases[index];
             document.getElementById('aliasModal').classList.add('active');
             document.getElementById('aliasModalTitle').textContent = t('modal_edit_alias');
@@ -1697,48 +1843,12 @@
             const upstreamSelect = document.getElementById('aliasUpstream');
             upstreamSelect.value = a.upstream;
 
-            const select = document.getElementById('aliasTargetSelect');
-            select.disabled = false;
+            const input = document.getElementById('aliasTargetSelect');
+            input.disabled = false;
+            input.value = a.target_model;
 
-            (async () => {
-                select.innerHTML = `<option value="">${t('alias_loading')}</option>`;
-
-                const upstream = config.upstreams.find(u => u.name === a.upstream);
-                if (upstream) {
-                    let url = upstream.models_url || `${upstream.base_url}/v1/models`;
-                    const headers = {};
-                    if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
-                        headers['Authorization'] = `Bearer ${upstream.api_key}`;
-                    }
-
-                    try {
-                        const response = await fetch(url, { headers });
-                        if (response.ok) {
-                            const data = await response.json();
-                            const models = (data.data || []).map(m => m.id).filter(id => id);
-
-                            if (models.length === 0) {
-                                select.innerHTML = `<option value="">${t('alias_no_models')}</option>`;
-                            } else {
-                                select.innerHTML = `<option value="">${t('alias_select_model')}</option>` +
-                                    models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
-
-                                if (models.includes(a.target_model)) {
-                                    select.value = a.target_model;
-                                } else {
-                                    select.value = a.target_model;
-                                }
-                            }
-                        } else {
-                            select.innerHTML = `<option value="">${t('alias_load_failed')}</option>`;
-                        }
-                    } catch (error) {
-                        select.innerHTML = `<option value="">${t('alias_load_failed')}</option>`;
-                    }
-                } else {
-                    select.innerHTML = `<option value="">${t('alias_upstream_not_found')}</option>`;
-                }
-            })();
+            // Populate datalist with available models for suggestions
+            await updateTargetSelect();
         }
 
         async function deleteAlias(index) {
@@ -2037,6 +2147,586 @@
             if (typeof value === 'string') return value;
             return JSON.stringify(value);
         }
+
+        // === OAuth related functions ===
+
+        // Token status cache for OAuth upstreams
+        let oauthTokenStatus = {};
+        let oauthSSE = null;
+        let oauthStatusPollInterval = null;
+
+        function isOAuthUpstream(upstream) {
+            return upstream.auth && upstream.auth.type === 'oauth_device';
+        }
+
+        function isCodexUpstream(upstream) {
+            return upstream.api_type === 'chatgpt_codex' ||
+                   (upstream.auth && upstream.auth.type === 'oauth_device' && upstream.base_url && upstream.base_url.includes('chatgpt.com'));
+        }
+
+        function getAuthBadge(upstream) {
+            if (isCodexUpstream(upstream)) {
+                return '<span class="auth-badge oauth">Codex</span>';
+            }
+            if (isOAuthUpstream(upstream)) {
+                return '<span class="auth-badge oauth">OAuth</span>';
+            }
+            return '<span class="auth-badge api-key">API Key</span>';
+        }
+
+        function getTokenStatusHtml(upstream) {
+            if (!isOAuthUpstream(upstream)) return '';
+            const status = oauthTokenStatus[upstream.name];
+            if (!status) return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
+
+            if (status.status === 'success') {
+                let cls = 'valid';
+                let msg = status.message || t('oauth_logged_in');
+                if (status.expires_at) {
+                    const expires = new Date(status.expires_at);
+                    const now = new Date();
+                    const diff = (expires - now) / 1000; // seconds
+                    if (diff < 300) {
+                        cls = 'expiring';
+                        msg = msg + ' (即将过期)';
+                    } else if (diff < 0) {
+                        cls = 'expired';
+                        msg = t('oauth_not_logged_in');
+                    } else {
+                        const expStr = expires.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        msg = t('oauth_logged_in') + ' (' + expStr + ')';
+                    }
+                }
+                return `<div class="token-status ${cls}">${msg}</div>`;
+            } else if (status.status === 'pending') {
+                return `<div class="token-status expiring">${t('oauth_logining')}</div>`;
+            } else if (status.status === 'expired') {
+                return `<div class="token-status expired">${t('oauth_not_logged_in')} - ${status.message || ''}</div>`;
+            }
+            return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
+        }
+
+        function getAuthActions(upstream, index) {
+            if (!isOAuthUpstream(upstream)) return '';
+            const status = oauthTokenStatus[upstream.name];
+            let html = `<button class="btn btn-success" onclick="oauthLogin('${upstream.name}')">${t('oauth_login')}</button>`;
+            if (status && status.status === 'success') {
+                html += `<button class="btn btn-secondary" onclick="oauthLogout('${upstream.name}')">${t('oauth_logout')}</button>`;
+            }
+            return html;
+        }
+
+        // Toggle auth type fields in upstream modal
+        function toggleAuthFields() {
+            const authType = document.getElementById('upstreamAuthType').value;
+            const isCodex = authType === 'codex';
+            const baseUrlInput = document.getElementById('upstreamBaseUrl');
+            const apiKeyFields = document.getElementById('apiKeyFields');
+            const codexFields = document.getElementById('codexFields');
+            const commonFields = document.getElementById('commonFields');
+            const testBtn = document.getElementById('testConnectionBtn');
+
+            apiKeyFields.style.display = isCodex ? 'none' : 'block';
+            codexFields.style.display = isCodex ? 'block' : 'none';
+            commonFields.style.display = isCodex ? 'none' : 'block';
+            testBtn.style.display = isCodex ? 'none' : 'inline-flex';
+
+            if (isCodex) {
+                baseUrlInput.value = 'https://chatgpt.com/backend-api';
+                baseUrlInput.readOnly = true;
+                baseUrlInput.style.background = '#f5f5f5';
+            } else {
+                baseUrlInput.readOnly = false;
+                baseUrlInput.style.background = '';
+            }
+        }
+
+        // OAuth login flow
+        async function oauthLogin(upstreamName) {
+            openOAuthLoginModal();
+            const body = document.getElementById('oauthLoginBody');
+            body.innerHTML = '<div class="loading">' + t('oauth_logining') + '</div>';
+
+            try {
+                const response = await fetch(`/api/auth/login/${encodeURIComponent(upstreamName)}`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    body.innerHTML = `<div style="color: #dc3545;">${err.error || '登录失败'}</div>`;
+                    return;
+                }
+
+                const data = await response.json();
+                body.innerHTML = `
+                    <div class="instructions">
+                        <p>${t('oauth_instructions_1')}:</p>
+                        <p class="verify-url"><a href="${data.verification_uri}" target="_blank">${data.verification_uri}</a></p>
+                        <p>${t('oauth_instructions_2')}: <strong class="user-code-display">${data.user_code}</strong></p>
+                        <p>${t('oauth_instructions_3')}</p>
+                    </div>
+                    <div class="user-code">${data.user_code}</div>
+                    <div class="action-buttons">
+                        <button class="btn" onclick="copyUserCode('${data.user_code}')">${t('oauth_copy_code')}</button>
+                        <button class="btn btn-success" onclick="window.open('${data.verification_uri}', '_blank')">${t('oauth_open_url')}</button>
+                    </div>
+                `;
+
+                // Connect SSE to listen for login completion
+                connectOAuthSSE(upstreamName);
+            } catch (error) {
+                body.innerHTML = `<div style="color: #dc3545;">${error.message}</div>`;
+            }
+        }
+
+        function copyUserCode(code) {
+            const ta = document.createElement('textarea');
+            ta.value = code;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            showStatus(t('oauth_code_copied'), 'success');
+        }
+
+        function openOAuthLoginModal() {
+            document.getElementById('oauthLoginModal').classList.add('active');
+        }
+
+        function closeOAuthLoginModal() {
+            document.getElementById('oauthLoginModal').classList.remove('active');
+            disconnectOAuthSSE();
+        }
+
+        function connectOAuthSSE(upstreamName) {
+            disconnectOAuthSSE();
+            oauthSSE = new EventSource('/api/auth/login-stream');
+
+            oauthSSE.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.upstream === upstreamName) {
+                        const status = data.status;
+                        if (status.status === 'success') {
+                            showStatus('OAuth 登录成功！', 'success');
+                            closeOAuthLoginModal();
+                            loadOAuthTokenStatus();
+                            loadAllUpstreamModels();
+                            renderUpstreams();
+                        } else if (status.status === 'failed' || status.status === 'expired') {
+                            const body = document.getElementById('oauthLoginBody');
+                            body.innerHTML = `<div style="color: #dc3545;">${status.message || '登录失败'}</div>
+                                <button class="btn" onclick="oauthLogin('${upstreamName}')" style="margin-top: 10px;">${t('oauth_relogin')}</button>`;
+                        }
+                    }
+                } catch (e) {
+                    // ignore parse errors
+                }
+            };
+
+            oauthSSE.onerror = () => {
+                // SSE will auto-reconnect
+            };
+        }
+
+        function disconnectOAuthSSE() {
+            if (oauthSSE) {
+                oauthSSE.close();
+                oauthSSE = null;
+            }
+        }
+
+        async function oauthLogout(upstreamName) {
+            try {
+                await fetch(`/api/auth/token/${encodeURIComponent(upstreamName)}`, { method: 'DELETE' });
+                delete oauthTokenStatus[upstreamName];
+                showStatus('已登出', 'success');
+                await loadAllUpstreamModels();
+                renderUpstreams();
+            } catch (error) {
+                showStatus('登出失败: ' + error.message, 'error');
+            }
+        }
+
+        async function loadOAuthTokenStatus() {
+            const oauthUpstreams = config.upstreams.filter(u => u.enabled && isOAuthUpstream(u));
+            for (const up of oauthUpstreams) {
+                try {
+                    const response = await fetch(`/api/auth/status/${encodeURIComponent(up.name)}`);
+                    if (response.ok) {
+                        oauthTokenStatus[up.name] = await response.json();
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            // Start polling if there are OAuth upstreams
+            if (oauthUpstreams.length > 0) {
+                startOAuthStatusPoll();
+            }
+        }
+
+        function startOAuthStatusPoll() {
+            if (oauthStatusPollInterval) return;
+            oauthStatusPollInterval = setInterval(async () => {
+                const prevCount = Object.keys(oauthTokenStatus).length;
+                await loadOAuthTokenStatus();
+                const newCount = Object.keys(oauthTokenStatus).length;
+                if (prevCount > 0 || newCount > 0) {
+                    renderUpstreams();
+                }
+            }, 60000); // every 60 seconds
+        }
+
+        // Modified fetchUpstreamModels to handle OAuth/Codex upstreams
+        async function fetchUpstreamModels(upstream) {
+            if (isOAuthUpstream(upstream) || isCodexUpstream(upstream)) {
+                // OAuth upstream: use backend proxy
+                try {
+                    const response = await fetch(`/api/upstream-models/${encodeURIComponent(upstream.name)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        upstreamModelsCache[upstream.name] = (data.data || []).map(m => m.id || m).filter(id => id);
+                    } else if (response.status === 401) {
+                        upstreamModelsCache[upstream.name] = [];
+                        const err = await response.json().catch(() => ({}));
+                        console.warn('OAuth upstream models fetch failed:', err.error);
+                    } else {
+                        upstreamModelsCache[upstream.name] = [];
+                    }
+                } catch (error) {
+                    upstreamModelsCache[upstream.name] = [];
+                }
+                return;
+            }
+
+            // API Key upstream: use direct fetch
+            let url = upstream.models_url || `${upstream.base_url}/v1/models`;
+            const headers = {};
+            if (upstream.auth) {
+                if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
+                    headers['Authorization'] = `Bearer ${upstream.auth.key}`;
+                }
+            } else if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
+                headers['Authorization'] = `Bearer ${upstream.api_key}`;
+            }
+
+            try {
+                const response = await fetch(url, { headers });
+                if (response.ok) {
+                    const data = await response.json();
+                    upstreamModelsCache[upstream.name] = (data.data || []).map(m => m.id).filter(id => id);
+                } else {
+                    upstreamModelsCache[upstream.name] = [];
+                }
+            } catch (error) {
+                upstreamModelsCache[upstream.name] = [];
+            }
+        }
+
+        // Modified renderUpstreams to show OAuth info
+        renderUpstreams = async function () {
+            const list = document.getElementById('upstreamList');
+            if (config.upstreams.length === 0) {
+                list.innerHTML = `<div class="empty-state">${t('empty_upstreams')}</div>`;
+                return;
+            }
+            list.innerHTML = config.upstreams.map((u, i) => {
+                const models = upstreamModelsCache[u.name] || [];
+                const modelsHtml = models.length > 0
+                    ? `<div class="models-wrapper">
+                        <div class="models-label">${t('available_models')}</div>
+                        <div class="models-grid">
+                            ${models.map(m => {
+                                const existingAlias = config.aliases.find(a =>
+                                    a.target_model === m && a.upstream === u.name && a.source === 'auto'
+                                );
+                                const hasConflict = config.aliases.some(a => a.alias === m);
+
+                                let tagClass = 'model-tag available';
+                                let onclickAttr = `toggleAutoAlias('${u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
+
+                                if (existingAlias) {
+                                    tagClass = 'model-tag enabled';
+                                } else if (hasConflict) {
+                                    tagClass = 'model-tag conflict';
+                                    onclickAttr = null;
+                                }
+
+                                const onclickStr = onclickAttr ? `onclick="${onclickAttr}"` : '';
+                                return `<span class="${tagClass}" ${onclickStr}>${escapeHtml(m)}</span>`;
+                            }).join('')}
+                        </div>
+                    </div>`
+                    : '';
+
+                const isOAuth = isOAuthUpstream(u);
+                const authBadge = getAuthBadge(u);
+                const tokenStatus = getTokenStatusHtml(u);
+                const authActions = getAuthActions(u, i);
+
+                const apiKeyDisplay = !isOAuth
+                    ? (() => {
+                        const key = (u.auth && u.auth.type === 'api_key' && u.auth.key) || u.api_key || '';
+                        if (!key) return t('none');
+                        return key.length > 16 ? key.substring(0, 8) + '******' + key.substring(key.length - 8) : key;
+                    })()
+                    : null;
+
+                return `
+                <div class="item-card">
+                    <div class="item-left">
+                        <label class="switch">
+                            <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream(${i})">
+                            <span class="slider"></span>
+                        </label>
+                        <div class="item-info">
+                            <div class="item-title">${escapeHtml(u.name)} ${authBadge}</div>
+                            <div class="item-detail">${escapeHtml(u.base_url)}</div>
+                            ${!isOAuth ? `<div class="item-detail">${t('api_key_label')} ${apiKeyDisplay}</div>` : ''}
+                            ${tokenStatus}
+                            <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_openai !== false ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_openai')">
+                                    OpenAI
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_anthropic === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic')">
+                                    Anthropic
+                                </label>
+                            </div>
+                            ${modelsHtml}
+                        </div>
+                    </div>
+                    <div class="item-actions">
+                        ${authActions}
+                        <button class="btn" onclick="editUpstream(${i})">${t('btn_edit')}</button>
+                        <button class="btn btn-danger" onclick="deleteUpstream(${i})">${t('btn_delete')}</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        };
+
+        // Modified saveUpstream to handle auth type
+        saveUpstream = async function (e) {
+            e.preventDefault();
+            const name = document.getElementById('upstreamName').value;
+            const authType = document.getElementById('upstreamAuthType').value;
+            const enabledElement = document.getElementById('upstreamEnabled');
+
+            let upstream = {
+                name: name,
+                base_url: document.getElementById('upstreamBaseUrl').value,
+                enabled: enabledElement ? enabledElement.checked : true,
+                support_openai: document.getElementById('upstreamSupportOpenai').checked,
+                support_anthropic: document.getElementById('upstreamSupportAnthropic').checked,
+                models_url: document.getElementById('upstreamModelsUrl').value || undefined
+            };
+
+            if (authType === 'codex') {
+                upstream.api_type = 'chatgpt_codex';
+                upstream.support_openai = true;
+                upstream.support_anthropic = false;
+                upstream.auth = {
+                    type: 'oauth_device',
+                    client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+                    device_auth_url: 'https://auth.openai.com/api/accounts/deviceauth/usercode',
+                    token_url: 'https://auth.openai.com/api/accounts/deviceauth/token'
+                };
+            } else {
+                const apiKey = document.getElementById('upstreamApiKey').value || null;
+                upstream.api_key = apiKey;
+            }
+
+            const index = config.upstreams.findIndex(u => u.name === name);
+            if (index !== -1) {
+                config.upstreams[index] = upstream;
+            } else {
+                config.upstreams.push(upstream);
+            }
+            const success = await saveConfig();
+            if (success) {
+                await fetchUpstreamModels(upstream);
+                renderUpstreams();
+                closeUpstreamModal();
+            }
+        };
+
+        // Modified editUpstream to handle auth type
+        editUpstream = function (index) {
+            const u = config.upstreams[index];
+            document.getElementById('upstreamModal').classList.add('active');
+            document.getElementById('upstreamModalTitle').textContent = t('modal_edit_upstream');
+            document.getElementById('upstreamName').value = u.name;
+            document.getElementById('upstreamName').readOnly = true;
+            document.getElementById('upstreamBaseUrl').value = u.base_url;
+            document.getElementById('upstreamSupportOpenai').checked = u.support_openai !== false;
+            document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic === true;
+            document.getElementById('upstreamModelsUrl').value = u.models_url || '';
+            updateProtocolCard('openai');
+            updateProtocolCard('anthropic');
+
+            if (isCodexUpstream(u)) {
+                document.getElementById('upstreamAuthType').value = 'codex';
+            } else if (u.auth && u.auth.type === 'oauth_device') {
+                document.getElementById('upstreamAuthType').value = 'codex';
+            } else {
+                document.getElementById('upstreamAuthType').value = 'api_key';
+                const key = (u.auth && u.auth.type === 'api_key' && u.auth.key) || u.api_key || '';
+                document.getElementById('upstreamApiKey').value = key;
+            }
+            toggleAuthFields();
+        };
+
+        // Modified closeUpstreamModal to reset auth type
+        closeUpstreamModal = function () {
+            document.getElementById('upstreamModal').classList.remove('active');
+            document.getElementById('upstreamName').readOnly = false;
+            document.getElementById('upstreamForm').reset();
+            document.getElementById('upstreamAuthType').value = 'api_key';
+            toggleAuthFields();
+        };
+
+        // Modified openUpstreamModal
+        openUpstreamModal = function () {
+            document.getElementById('upstreamModal').classList.add('active');
+            document.getElementById('upstreamModalTitle').textContent = t('modal_add_upstream');
+            document.getElementById('upstreamForm').reset();
+            document.getElementById('upstreamName').readOnly = false;
+            document.getElementById('upstreamAuthType').value = 'api_key';
+            toggleAuthFields();
+        };
+
+        // Modified updateTargetSelect to handle OAuth upstreams and allow custom model names
+        updateTargetSelect = async function () {
+            const upstreamName = document.getElementById('aliasUpstream').value;
+            const input = document.getElementById('aliasTargetSelect');
+            const datalist = document.getElementById('aliasTargetDatalist');
+
+            if (!upstreamName) {
+                input.value = '';
+                input.placeholder = t('alias_pick_upstream_first');
+                input.disabled = true;
+                datalist.innerHTML = '';
+                return;
+            }
+
+            input.disabled = false;
+            input.placeholder = t('alias_target_placeholder');
+            datalist.innerHTML = `<option value="${t('alias_loading')}">`;
+
+            const upstream = config.upstreams.find(u => u.name === upstreamName);
+            if (!upstream) {
+                datalist.innerHTML = '';
+                return;
+            }
+
+            // Use backend proxy for OAuth/Codex upstreams, direct fetch for API Key
+            let fetchModels = async () => {
+                if (isOAuthUpstream(upstream) || isCodexUpstream(upstream)) {
+                    try {
+                        const response = await fetch(`/api/upstream-models/${encodeURIComponent(upstreamName)}`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            const models = (data.data || []).map(m => m.id || m).filter(id => id);
+                            datalist.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">`).join('');
+                        }
+                        // If 401 or empty, just leave the datalist empty — user can type manually
+                    } catch (e) {
+                        // ignore — user can still type manually
+                    }
+                } else {
+                    let url = upstream.models_url || `${upstream.base_url}/v1/models`;
+                    const headers = {};
+                    if (upstream.auth) {
+                        if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
+                            headers['Authorization'] = `Bearer ${upstream.auth.key}`;
+                        }
+                    } else if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
+                        headers['Authorization'] = `Bearer ${upstream.api_key}`;
+                    }
+
+                    try {
+                        const response = await fetch(url, { headers });
+                        if (response.ok) {
+                            const data = await response.json();
+                            const models = (data.data || []).map(m => m.id).filter(id => id);
+                            datalist.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">`).join('');
+                        }
+                    } catch (error) {
+                        // ignore — user can still type manually
+                    }
+                }
+            };
+
+            await fetchModels();
+        };
+
+        // Modified testUpstream to handle OAuth
+        testUpstream = async function () {
+            const baseUrl = document.getElementById('upstreamBaseUrl').value;
+            const authType = document.getElementById('upstreamAuthType').value;
+
+            if (!baseUrl) {
+                showStatus(t('status_fill_baseurl'), 'error');
+                return;
+            }
+
+            // For OAuth, we can't test connection from the modal
+            if (authType === 'oauth_device') {
+                showStatus('OAuth 上游请先保存配置并完成登录后再测试', 'loading');
+                return;
+            }
+
+            showStatus(t('status_testing'), 'loading');
+
+            try {
+                const modelsUrl = document.getElementById('upstreamModelsUrl').value;
+                const url = modelsUrl ? modelsUrl : `${baseUrl}/v1/models`;
+                const headers = {};
+                const apiKey = document.getElementById('upstreamApiKey').value;
+                if (apiKey && apiKey !== 'none' && apiKey.trim() !== '') {
+                    headers['Authorization'] = `Bearer ${apiKey}`;
+                }
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: headers,
+                    signal: AbortSignal.timeout(10000)
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const modelCount = data.data ? data.data.length : 0;
+                    showStatus(t('status_connected', modelCount), 'success');
+                } else {
+                    showStatus(t('status_connect_failed', response.status), 'error');
+                }
+            } catch (error) {
+                showStatus(t('status_connect_error', error.message), 'error');
+            }
+        };
+
+        // Load OAuth token status on config load
+        loadConfig = async function () {
+            try {
+                const response = await fetch('/api/config');
+                config = await response.json();
+                renderUpstreams();
+                renderAliases();
+                renderAggregatedModels();
+                await loadAllUpstreamModels();
+                await loadOAuthTokenStatus();
+                renderUpstreams();
+            } catch (error) {
+                showStatus(t('status_load_failed') + error.message, 'error');
+            }
+        };
     </script>
 </body>
 </html>

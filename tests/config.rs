@@ -62,7 +62,8 @@ fn test_save_and_load_config() {
         upstreams: vec![UpstreamConfig {
             name: "test".to_string(),
             base_url: "http://localhost:8080".to_string(),
-            api_key: Some("key".to_string()),
+            api_type: ApiType::default(),
+            auth: UpstreamAuth::ApiKey { key: Some("key".to_string()) },
             enabled: true,
             support_openai: true,
             support_anthropic: false,
@@ -96,7 +97,8 @@ fn test_save_config_with_param_overrides() {
         upstreams: vec![UpstreamConfig {
             name: "test".to_string(),
             base_url: "http://localhost:8080".to_string(),
-            api_key: None,
+            api_type: ApiType::default(),
+            auth: UpstreamAuth::ApiKey { key: None },
             enabled: true,
             support_openai: true,
             support_anthropic: false,

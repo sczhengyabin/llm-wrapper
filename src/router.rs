@@ -1,5 +1,5 @@
 use crate::config::ConfigManager;
-use crate::models::{ModelAlias, OverrideMode};
+use crate::models::{ApiType, ModelAlias, OverrideMode, UpstreamAuth};
 use std::collections::HashMap;
 
 /// 路由信息，包含选中的上游和需要应用的参数覆盖
@@ -7,8 +7,12 @@ use std::collections::HashMap;
 pub struct RouteResult {
     /// 上游基础 URL
     pub upstream_base_url: String,
-    /// 上游 API 密钥（如果有）
-    pub upstream_api_key: Option<String>,
+    /// 上游名称
+    pub upstream_name: String,
+    /// 上游认证配置
+    pub upstream_auth: UpstreamAuth,
+    /// API 类型
+    pub api_type: ApiType,
     /// 实际要使用的模型名称
     pub target_model: String,
     /// 需要强制覆盖的参数（override 模式）
@@ -49,7 +53,9 @@ impl ModelRouter {
         }).filter(|u| u.enabled) {
             return Some(RouteResult {
                 upstream_base_url: upstream.base_url.clone(),
-                upstream_api_key: upstream.api_key.clone(),
+                upstream_name: upstream.name.clone(),
+                upstream_auth: upstream.auth.clone(),
+                api_type: upstream.api_type.clone(),
                 target_model: model.to_string(),
                 override_params: HashMap::new(),
                 default_params: HashMap::new(),
@@ -87,7 +93,9 @@ impl ModelRouter {
 
         Some(RouteResult {
             upstream_base_url: upstream.base_url.clone(),
-            upstream_api_key: upstream.api_key.clone(),
+            upstream_name: upstream.name.clone(),
+            upstream_auth: upstream.auth.clone(),
+            api_type: upstream.api_type.clone(),
             target_model: alias.target_model.clone(),
             override_params,
             default_params,

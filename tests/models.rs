@@ -112,7 +112,7 @@ fn test_upstream_config_new() {
 
     assert_eq!(upstream.name, "test-upstream");
     assert_eq!(upstream.base_url, "http://localhost:8080");
-    assert!(upstream.api_key.is_none());
+    assert!(upstream.api_key_value().is_none());
     assert!(upstream.enabled);
 }
 

@@ -1,3 +1,5 @@
+use crate::models::ApiType;
+use crate::oauth::AuthManager;
 use crate::router::RouteResult;
 use reqwest::Client;
 use tracing::debug;
@@ -20,15 +22,17 @@ pub struct DebugInfo {
 /// 请求代理
 pub struct Proxy {
     client: Client,
+    auth_manager: AuthManager,
 }
 
 impl Proxy {
-    pub fn new() -> Self {
+    pub fn new(auth_manager: AuthManager) -> Self {
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(1200))
                 .build()
                 .expect("无法创建 HTTP 客户端"),
+            auth_manager,
         }
     }
 
@@ -50,8 +54,11 @@ impl Proxy {
         // 保存端点
         let endpoint = path.clone();
 
+        // 根据 api_type 重写路径
+        let upstream_path = transform_upstream_path(&route.api_type, &path);
+
         // 构建上游 URL
-        let upstream_url = format!("{}{}", route.upstream_base_url, path);
+        let upstream_url = format!("{}{}", route.upstream_base_url, upstream_path);
 
         debug!("代理请求到上游：{}", upstream_url);
 
@@ -59,6 +66,11 @@ impl Proxy {
         let mut request_body = body;
         // 应用参数覆盖
         apply_param_overrides_inner(&mut request_body, route);
+
+        // 如果上游是 ChatGPT Codex，转换请求格式
+        if route.api_type == ApiType::ChatGptCodex {
+            transform_chat_to_responses(&mut request_body);
+        }
 
         // 保存上游请求体（调试用）- 总是保存，不依赖 debug_mode
         let upstream_request = request_body.clone();
@@ -75,10 +87,13 @@ impl Proxy {
                 &upstream_url,
             );
 
-        // 添加上游 API 密钥
-        if let Some(api_key) = &route.upstream_api_key {
-            if api_key != "none" && !api_key.is_empty() {
-                req_builder = req_builder.bearer_auth(api_key);
+        // 获取上游访问令牌
+        if let Some(access_token) = self.auth_manager
+            .get_access_token(&route.upstream_name, &route.upstream_auth)
+            .await
+        {
+            if !access_token.is_empty() && access_token != "none" {
+                req_builder = req_builder.bearer_auth(&access_token);
             }
         }
 
@@ -238,8 +253,85 @@ pub fn apply_param_overrides_inner(
     }
 }
 
-impl Default for Proxy {
-    fn default() -> Self {
-        Self::new()
+/// 根据 API 类型重写上游路径
+fn transform_upstream_path(api_type: &ApiType, path: &str) -> String {
+    match api_type {
+        ApiType::ChatGptCodex => {
+            match path {
+                "/v1/chat/completions" => "/codex/responses",
+                "/v1/responses" => "/codex/responses",
+                "/v1/models" => "/codex/models",
+                _ => path,
+            }
+            .to_string()
+        }
+        ApiType::OpenAI => path.to_string(),
+    }
+}
+
+/// 将 chat completions 请求格式转换为 Responses API 格式
+fn transform_chat_to_responses(body: &mut serde_json::Value) {
+    if let serde_json::Value::Object(ref mut map) = body {
+        // 从 messages 中分离 system 消息和普通消息
+        if let Some(messages) = map.remove("messages") {
+            if let serde_json::Value::Array(ref msgs) = messages {
+                let mut instructions_parts = Vec::new();
+                let mut non_system_msgs = serde_json::Value::Array(Vec::new());
+
+                for msg in msgs {
+                    if let serde_json::Value::Object(ref m) = msg {
+                        if let Some(role) = m.get("role") {
+                            if role == "system" {
+                                // system 消息的内容提取到 instructions
+                                if let Some(content) = m.get("content") {
+                                    instructions_parts.push(content.clone());
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    non_system_msgs.as_array_mut().unwrap().push(msg.clone());
+                }
+
+                // 构建 instructions（合并所有 system 消息）
+                if !instructions_parts.is_empty() {
+                    let instructions = if instructions_parts.len() == 1 {
+                        instructions_parts[0].clone()
+                    } else {
+                        serde_json::Value::String(
+                            instructions_parts
+                                .iter()
+                                .map(|c| c.as_str().unwrap_or(""))
+                                .collect::<Vec<_>>()
+                                .join("\n\n"),
+                        )
+                    };
+                    map.insert("instructions".to_string(), instructions);
+                } else {
+                    // 没有 system 消息时也设置空 instructions（Codex 后端必需）
+                    map.insert("instructions".to_string(), serde_json::Value::String("".to_string()));
+                }
+
+                // 非 system 消息放入 input
+                map.insert("input".to_string(), non_system_msgs);
+            } else {
+                // 不是数组，直接放入 input
+                map.insert("input".to_string(), messages);
+            }
+        } else {
+            // 没有 messages 字段，设置空 instructions
+            map.insert("instructions".to_string(), serde_json::Value::String("".to_string()));
+        }
+
+        // max_tokens → max_output_tokens
+        if let Some(max_tokens) = map.remove("max_tokens") {
+            map.insert("max_output_tokens".to_string(), max_tokens);
+        }
+
+        // 移除 stream_options（Responses API 不需要）
+        map.remove("stream_options");
+
+        // 注入 store: false（Codex OAuth token 要求）
+        map.insert("store".to_string(), serde_json::Value::Bool(false));
     }
 }

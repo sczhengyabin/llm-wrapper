@@ -46,6 +46,12 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 # Testing
 tempfile = "3"
 
+# Time handling for token expiry
+chrono = { version = "0.4", features = ["serde"] }
+
+# Home directory path for token cache location
+dirs = "5.0"
+
 [profile.release]
 opt-level = 3
 lto = true

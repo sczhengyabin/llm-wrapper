@@ -1,6 +1,94 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// API 类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum ApiType {
+    #[default]
+    #[serde(rename = "open_ai", alias = "open_a_i")]
+    OpenAI,
+    /// ChatGPT Codex 后端 (chatgpt.com/backend-api/codex/responses)
+    #[serde(rename = "chatgpt_codex", alias = "chat_gpt_codex")]
+    ChatGptCodex,
+}
+
+/// 上游认证方式
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum UpstreamAuth {
+    ApiKey { key: Option<String> },
+    #[serde(rename = "oauth_device")]
+    OAuthDevice {
+        client_id: String,
+        device_auth_url: String,
+        token_url: String,
+        #[serde(default)]
+        scope: Option<String>,
+    },
+}
+
+impl Default for UpstreamAuth {
+    fn default() -> Self {
+        UpstreamAuth::ApiKey { key: None }
+    }
+}
+
+/// RFC 8628 设备授权响应
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeviceAuthResponse {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_uri_complete: Option<String>,
+    pub expires_in: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval: Option<u64>,
+}
+
+/// OAuth 2.0 Token 响应
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OAuthTokenResponse {
+    pub access_token: String,
+    pub token_type: String,
+    pub expires_in: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+}
+
+/// 持久化缓存的 Token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedToken {
+    pub access_token: String,
+    pub token_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 设备认证状态（对外 API 使用）
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DeviceAuthStatus {
+    Pending {
+        user_code: String,
+        verification_uri: String,
+        verification_uri_complete: Option<String>,
+        expires_at: String,
+    },
+    Success {
+        message: String,
+        expires_at: Option<String>,
+    },
+    Failed {
+        reason: String,
+        message: String,
+    },
+    Expired {
+        message: String,
+    },
+}
+
 /// Alias 来源类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -36,15 +124,18 @@ pub struct ParamOverride {
 }
 
 /// 上游配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct UpstreamConfig {
     /// 上游名称（用作唯一标识）
     pub name: String,
     /// 上游 API 基础 URL
     pub base_url: String,
-    /// API 密钥
+    /// API 类型（默认 OpenAI）
     #[serde(default)]
-    pub api_key: Option<String>,
+    pub api_type: ApiType,
+    /// 认证配置（默认 ApiKey(None)）
+    #[serde(default = "default_api_key_auth")]
+    pub auth: UpstreamAuth,
     /// 是否启用
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -59,10 +150,62 @@ pub struct UpstreamConfig {
     pub models_url: Option<String>,
 }
 
+#[allow(dead_code)]
+fn default_api_key_auth() -> UpstreamAuth {
+    UpstreamAuth::ApiKey { key: None }
+}
+
+/// 自定义反序列化以兼容旧的 api_key 字段
+impl<'de> serde::Deserialize<'de> for UpstreamConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        #[derive(Deserialize)]
+        struct Raw {
+            name: Option<String>,
+            base_url: Option<String>,
+            api_type: Option<ApiType>,
+            api_key: Option<String>,
+            auth: Option<UpstreamAuth>,
+            enabled: Option<bool>,
+            support_openai: Option<bool>,
+            support_anthropic: Option<bool>,
+            models_url: Option<String>,
+        }
+
+        let raw: Raw = serde::Deserialize::deserialize(deserializer)?;
+
+        let name = raw.name.ok_or_else(|| D::Error::missing_field("name"))?;
+        let base_url = raw.base_url.ok_or_else(|| D::Error::missing_field("base_url"))?;
+
+        let auth = match (raw.auth, raw.api_key) {
+            (Some(a), _) => a, // 新格式优先
+            (None, Some(k)) => UpstreamAuth::ApiKey { key: Some(k) },
+            (None, None) => UpstreamAuth::ApiKey { key: None },
+        };
+
+        Ok(UpstreamConfig {
+            name,
+            base_url,
+            api_type: raw.api_type.unwrap_or_default(),
+            auth,
+            enabled: raw.enabled.unwrap_or(true),
+            support_openai: raw.support_openai.unwrap_or(true),
+            support_anthropic: raw.support_anthropic.unwrap_or(false),
+            models_url: raw.models_url,
+        })
+    }
+}
+
+#[allow(dead_code)]
 fn default_false() -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn default_true() -> bool {
     true
 }
@@ -73,7 +216,8 @@ impl UpstreamConfig {
         Self {
             name: name.clone(),
             base_url,
-            api_key: None,
+            api_type: ApiType::default(),
+            auth: UpstreamAuth::ApiKey { key: None },
             enabled: true,
             support_openai: true,
             support_anthropic: false,
@@ -91,8 +235,24 @@ impl UpstreamConfig {
     pub fn get_models_url(&self) -> String {
         if let Some(url) = &self.models_url {
             url.clone()
+        } else if self.api_type == ApiType::ChatGptCodex {
+            format!("{}/codex/models", self.base_url)
         } else {
             format!("{}/v1/models", self.base_url)
+        }
+    }
+
+    /// 是否为 OAuth 认证
+    pub fn is_oauth(&self) -> bool {
+        matches!(self.auth, UpstreamAuth::OAuthDevice { .. })
+    }
+
+    /// 获取 API Key（仅 ApiKey 类型）
+    #[allow(dead_code)]
+    pub fn api_key_value(&self) -> Option<&str> {
+        match &self.auth {
+            UpstreamAuth::ApiKey { key } => key.as_deref(),
+            _ => None,
         }
     }
 }
@@ -190,4 +350,78 @@ pub struct ModelResponse {
     pub object: String,
     pub created: u64,
     pub owned_by: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oauth_auth_json_roundtrip() {
+        let json = r#"{
+            "upstreams": [{
+                "name": "test-oauth",
+                "base_url": "https://api.openai.com",
+                "enabled": true,
+                "auth": {
+                    "type": "oauth_device",
+                    "client_id": "codex",
+                    "device_auth_url": "https://auth.openai.com/oauth/authorize",
+                    "token_url": "https://auth.openai.com/oauth/token",
+                    "scope": "offline"
+                }
+            }]
+        }"#;
+        let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
+        assert!(config.upstreams[0].is_oauth());
+    }
+
+    #[test]
+    fn test_yaml_roundtrip() {
+        let json = r#"{
+            "upstreams": [{
+                "name": "test-oauth",
+                "base_url": "https://api.openai.com",
+                "enabled": true,
+                "auth": {
+                    "type": "oauth_device",
+                    "client_id": "codex",
+                    "device_auth_url": "https://auth.openai.com/oauth/authorize",
+                    "token_url": "https://auth.openai.com/oauth/token",
+                    "scope": "offline"
+                }
+            }, {
+                "name": "vllm",
+                "base_url": "http://127.0.0.1:30002",
+                "enabled": true,
+                "api_key": null
+            }],
+            "aliases": []
+        }"#;
+        let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
+
+        // Serialize to YAML
+        let yaml = serde_yaml::to_string(&config).expect("YAML serialize failed");
+        eprintln!("YAML:\n{}", yaml);
+
+        // Parse YAML back
+        let config2: AppConfig = serde_yaml::from_str(&yaml).expect("YAML parse failed");
+        assert_eq!(config2.upstreams.len(), 2);
+        assert!(config2.upstreams[0].is_oauth());
+        assert!(!config2.upstreams[1].is_oauth());
+    }
+
+    #[test]
+    fn test_old_api_key_format() {
+        let json = r#"{
+            "upstreams": [{
+                "name": "vllm",
+                "base_url": "http://127.0.0.1:30002",
+                "enabled": true,
+                "api_key": null
+            }]
+        }"#;
+        let config: AppConfig = serde_json::from_str(json).expect("Old format parse failed");
+        assert!(!config.upstreams[0].is_oauth());
+    }
 }

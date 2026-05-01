@@ -1,3 +1,4 @@
+use llm_wrapper::models::UpstreamAuth;
 use llm_wrapper::proxy::apply_param_overrides_inner;
 use llm_wrapper::router::RouteResult;
 use std::collections::HashMap;
@@ -8,7 +9,9 @@ fn create_test_route(
 ) -> RouteResult {
     RouteResult {
         upstream_base_url: "http://localhost:8080".to_string(),
-        upstream_api_key: Some("test-key".to_string()),
+        upstream_name: "test".to_string(),
+        upstream_auth: UpstreamAuth::ApiKey { key: Some("test-key".to_string()) },
+        api_type: llm_wrapper::models::ApiType::OpenAI,
         target_model: "gpt-4-turbo".to_string(),
         override_params,
         default_params,

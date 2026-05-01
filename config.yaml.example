@@ -19,6 +19,22 @@ upstreams:
     support_openai: true
     support_anthropic: false
 
+  # 上游 3: OAuth Device Code 认证（如 Codex CLI / ChatGPT）
+  # OpenAI 使用自定义设备码流程（非标准 RFC 8628），wrapper 会自动识别并适配
+  # 登录后 token 会自动缓存到 ~/.llm-wrapper/tokens.json，并自动刷新
+  # 注意：Codex OAuth token 的目标是 chatgpt.com 后端，不是 api.openai.com
+  - name: openai-oauth
+    base_url: https://chatgpt.com/backend-api
+    api_type: chatgpt_codex
+    auth:
+      type: oauth_device
+      client_id: "app_EMoamEEZ73f0CkXaXp7hrann"  # OpenAI Codex 默认 Client ID
+      device_auth_url: https://auth.openai.com/api/accounts/deviceauth/usercode
+      token_url: https://auth.openai.com/api/accounts/deviceauth/token
+    enabled: true
+    support_openai: true
+    support_anthropic: false
+
 aliases:
   # 别名 1: 简单别名，直接映射到上游模型
   - alias: qwen

@@ -1,8 +1,10 @@
 use llm_wrapper::config;
 use llm_wrapper::models;
+use llm_wrapper::oauth::AuthManager;
 use llm_wrapper::proxy;
 use llm_wrapper::router;
 
+use llm_wrapper::models::UpstreamAuth;
 use llm_wrapper::proxy::DebugInfo;
 
 use actix_files as fs;
@@ -19,6 +21,7 @@ use std::pin::Pin;
 
 struct AppState {
     config: ConfigManager,
+    auth_manager: AuthManager,
     debug_data: web::Data<DebugDataStore>,
     stream_hub: web::Data<DebugStreamHub>,
 }
@@ -81,10 +84,15 @@ async fn main() -> std::io::Result<()> {
     let config_path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.yaml".to_string());
     let config_manager = ConfigManager::new(&config_path).await.expect("无法加载配置");
 
+    // 初始化认证管理器
+    let auth_manager = AuthManager::new();
+    auth_manager.load_cache().await;
+
     let debug_store = web::Data::new(DebugDataStore::default());
     let stream_hub = web::Data::new(DebugStreamHub::new());
     let state = web::Data::new(AppState {
         config: config_manager,
+        auth_manager,
         debug_data: debug_store.clone(),
         stream_hub: stream_hub.clone(),
     });
@@ -107,6 +115,12 @@ async fn main() -> std::io::Result<()> {
             .route("/api/config", web::put().to(update_config))
             .route("/api/upstream-models", web::get().to(get_upstream_models))
             .route("/api/upstream-models/alias", web::post().to(create_upstream_model_alias))
+            .route("/api/upstream-models/{upstream}", web::get().to(get_upstream_models_by_name))
+            // 认证 API
+            .route("/api/auth/login/{upstream_name}", web::post().to(auth_login))
+            .route("/api/auth/status/{upstream_name}", web::get().to(auth_status))
+            .route("/api/auth/token/{upstream_name}", web::delete().to(auth_clear_token))
+            .route("/api/auth/login-stream", web::get().to(auth_login_stream))
             .route("/api/debug", web::get().to(get_debug_data))
             .route("/api/debug", web::delete().to(clear_debug_data))
             .route("/api/debug/stream", web::get().to(debug_stream))
@@ -160,7 +174,7 @@ async fn chat_completions(
     };
 
     let router = ModelRouter::new(state.config.clone());
-    let proxy = Proxy::new();
+    let proxy = Proxy::new(state.auth_manager.clone());
 
     // 查找路由
     let route = match router.route(&model).await {
@@ -242,7 +256,7 @@ async fn responses(
     };
 
     let router = ModelRouter::new(state.config.clone());
-    let proxy = Proxy::new();
+    let proxy = Proxy::new(state.auth_manager.clone());
 
     // 查找路由
     let route = match router.route(&model).await {
@@ -337,7 +351,7 @@ async fn messages(
     };
 
     let router = ModelRouter::new(state.config.clone());
-    let proxy = Proxy::new();
+    let proxy = Proxy::new(state.auth_manager.clone());
 
     // 查找路由
     let route = match router.route(&model).await {
@@ -455,9 +469,11 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                 let mut request = reqwest::Client::new()
                     .get(&url)
                     .timeout(std::time::Duration::from_secs(2));
-                if let Some(api_key) = &up.api_key {
-                    if api_key != "none" && !api_key.is_empty() {
-                        request = request.bearer_auth(api_key);
+                if let UpstreamAuth::ApiKey { key } = &up.auth {
+                    if let Some(k) = key {
+                        if k != "none" && !k.is_empty() {
+                            request = request.bearer_auth(k);
+                        }
                     }
                 }
 
@@ -559,10 +575,13 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
         .map(|upstream| {
             let url = upstream.get_models_url();
             let name = upstream.name.clone();
+            let auth = upstream.auth.clone();
             let mut request = reqwest::Client::new().get(&url);
-            if let Some(api_key) = &upstream.api_key {
-                if api_key != "none" && !api_key.is_empty() {
-                    request = request.bearer_auth(api_key);
+            if let UpstreamAuth::ApiKey { key } = &auth {
+                if let Some(k) = key {
+                    if k != "none" && !k.is_empty() {
+                        request = request.bearer_auth(k);
+                    }
                 }
             }
 
@@ -606,6 +625,200 @@ async fn webui_index() -> HttpResponse {
 }
 
 use serde_json::json;
+
+/// 获取指定上游的模型列表（支持 OAuth token 注入）
+async fn get_upstream_models_by_name(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let upstream_name = path.into_inner();
+    let config = state.config.get_config().await;
+
+    let upstream = config
+        .upstreams
+        .iter()
+        .find(|u| u.name == upstream_name && u.enabled);
+
+    if upstream.is_none() {
+        return HttpResponse::NotFound().json(json!({
+            "error": "上游不存在或未启用"
+        }));
+    }
+    let upstream = upstream.unwrap();
+
+    let url = upstream.get_models_url();
+    let mut request = reqwest::Client::new().get(&url).timeout(std::time::Duration::from_secs(5));
+
+    match &upstream.auth {
+        UpstreamAuth::ApiKey { key } => {
+            if let Some(k) = key {
+                if k != "none" && !k.is_empty() {
+                    request = request.bearer_auth(k);
+                }
+            }
+        }
+        UpstreamAuth::OAuthDevice { .. } => {
+            // 尝试获取 OAuth token
+            if let Some(token) = state
+                .auth_manager
+                .get_access_token(&upstream.name, &upstream.auth)
+                .await
+            {
+                if !token.is_empty() && token != "none" {
+                    request = request.bearer_auth(&token);
+                } else {
+                    return HttpResponse::Unauthorized().json(json!({
+                        "error": format!("上游 '{}' 未登录，请先完成 OAuth 登录", upstream.name)
+                    }));
+                }
+            } else {
+                return HttpResponse::Unauthorized().json(json!({
+                    "error": format!("上游 '{}' 没有有效的访问令牌", upstream.name)
+                }));
+            }
+        }
+    }
+
+    match request.send().await {
+        Ok(resp) => {
+            let mut models = Vec::new();
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+                    for model in data {
+                        if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
+                            models.push(id.to_string());
+                        }
+                    }
+                }
+            }
+            HttpResponse::Ok().json(json!({
+                "object": "list",
+                "data": models
+            }))
+        }
+        Err(e) => {
+            if e.is_timeout() {
+                HttpResponse::GatewayTimeout().json(json!({
+                    "error": "请求上游超时"
+                }))
+            } else {
+                HttpResponse::BadGateway().json(json!({
+                    "error": format!("请求上游失败: {}", e)
+                }))
+            }
+        }
+    }
+}
+
+// === 认证 API 处理函数 ===
+
+async fn auth_login(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let upstream_name = path.into_inner();
+    let config = state.config.get_config().await;
+
+    let upstream = config
+        .upstreams
+        .iter()
+        .find(|u| u.name == upstream_name && u.enabled);
+
+    if upstream.is_none() {
+        return HttpResponse::NotFound().json(json!({
+            "error": "上游不存在或未启用"
+        }));
+    }
+    let upstream = upstream.unwrap();
+
+    let (client_id, device_auth_url, token_url, scope) = match &upstream.auth {
+        UpstreamAuth::OAuthDevice {
+            client_id,
+            device_auth_url,
+            token_url,
+            scope,
+        } => (
+            client_id.as_str(),
+            device_auth_url.as_str(),
+            token_url.as_str(),
+            scope.as_deref(),
+        ),
+        UpstreamAuth::ApiKey { .. } => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": "该上游不使用 OAuth 认证"
+            }));
+        }
+    };
+
+    match state
+        .auth_manager
+        .initiate_device_auth(
+            &upstream.name,
+            client_id,
+            device_auth_url,
+            token_url,
+            scope,
+        )
+        .await
+    {
+        Ok(session) => HttpResponse::Ok().json(json!({
+            "status": "pending",
+            "user_code": session.user_code,
+            "verification_uri": session.verification_uri,
+            "verification_uri_complete": session.verification_uri_complete,
+            "expires_at": session.expires_at.to_rfc3339(),
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": e
+        })),
+    }
+}
+
+async fn auth_status(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let upstream_name = path.into_inner();
+    let status = state.auth_manager.get_token_status(&upstream_name).await;
+    HttpResponse::Ok().json(status)
+}
+
+async fn auth_clear_token(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let upstream_name = path.into_inner();
+    state.auth_manager.clear_token(&upstream_name).await;
+    HttpResponse::Ok().json(json!({
+        "success": true
+    }))
+}
+
+/// SSE 流：推送 OAuth 登录完成事件
+async fn auth_login_stream(state: web::Data<AppState>) -> impl actix_web::Responder {
+    let receiver = state.auth_manager.subscribe_completion();
+    let stream: Pin<Box<dyn Stream<Item = Result<actix_web::web::Bytes, Error>> + Send>> =
+        tokio_stream::wrappers::BroadcastStream::new(receiver)
+            .map(|result| match result {
+                Ok((upstream_name, status)) => {
+                    let json = serde_json::to_string(&json!({
+                        "type": "status",
+                        "upstream": upstream_name,
+                        "status": status,
+                    }))
+                    .unwrap_or_default();
+                    Ok(actix_web::web::Bytes::from(format!("data: {}\n\n", json)))
+                }
+                Err(_) => Ok(actix_web::web::Bytes::from(
+                    "data: {\"error\":\"connection reset\"}\n\n",
+                )),
+            })
+            .boxed();
+
+    actix_web::HttpResponse::Ok()
+        .content_type("text/event-stream")
+        .body(actix_web::body::BodyStream::new(stream))
+}
 use models::ModelAliasSource;
 
 /// 创建上游模型 alias 的请求
