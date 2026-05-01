@@ -145,9 +145,9 @@ pub struct UpstreamConfig {
     /// 是否支持 Anthropic 协议 (messages)
     #[serde(default = "default_false")]
     pub support_anthropic: bool,
-    /// 获取模型列表的 URL（默认 {base_url}/v1/models）
+    /// Anthropic 协议独立的 base URL（留空则使用 base_url）
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub models_url: Option<String>,
+    pub anthropic_base_url: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -173,7 +173,7 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
             enabled: Option<bool>,
             support_openai: Option<bool>,
             support_anthropic: Option<bool>,
-            models_url: Option<String>,
+            anthropic_base_url: Option<String>,
         }
 
         let raw: Raw = serde::Deserialize::deserialize(deserializer)?;
@@ -195,7 +195,7 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
             enabled: raw.enabled.unwrap_or(true),
             support_openai: raw.support_openai.unwrap_or(true),
             support_anthropic: raw.support_anthropic.unwrap_or(false),
-            models_url: raw.models_url,
+            anthropic_base_url: raw.anthropic_base_url,
         })
     }
 }
@@ -221,7 +221,7 @@ impl UpstreamConfig {
             enabled: true,
             support_openai: true,
             support_anthropic: false,
-            models_url: None,
+            anthropic_base_url: None,
         }
     }
 
@@ -233,9 +233,7 @@ impl UpstreamConfig {
 
     /// 获取模型列表 URL
     pub fn get_models_url(&self) -> String {
-        if let Some(url) = &self.models_url {
-            url.clone()
-        } else if self.api_type == ApiType::ChatGptCodex {
+        if self.api_type == ApiType::ChatGptCodex {
             format!("{}/codex/models", self.base_url)
         } else {
             format!("{}/v1/models", self.base_url)

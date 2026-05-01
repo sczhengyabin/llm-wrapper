@@ -17,6 +17,7 @@ fn create_test_route(
         default_params,
         support_openai: true,
         support_anthropic: false,
+        anthropic_base_url: None,
     }
 }
 

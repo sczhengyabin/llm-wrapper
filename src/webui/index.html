@@ -647,55 +647,6 @@
             font-weight: 600;
             color: #333;
         }
-        .protocol-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-        .protocol-card {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 10px;
-            padding: 14px 14px 12px;
-            cursor: pointer;
-            transition: all 0.25s ease;
-            user-select: none;
-        }
-        .protocol-card:hover {
-            background: #eef0f2;
-            border-color: #d0d5db;
-        }
-        .protocol-card.active {
-            background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%);
-            border-color: #81c784;
-            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.12);
-        }
-        .protocol-card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 6px;
-        }
-        .protocol-card-name {
-            font-weight: 600;
-            font-size: 14px;
-            color: #444;
-            transition: color 0.25s ease;
-        }
-        .protocol-card.active .protocol-card-name {
-            color: #2e7d32;
-        }
-        .protocol-card-desc {
-            font-size: 11px;
-            color: #999;
-            transition: color 0.25s ease;
-        }
-        .protocol-card.active .protocol-card-desc {
-            color: #66bb6a;
-        }
-        .protocol-card .switch {
-            flex-shrink: 0;
-        }
         .auth-badge {
             display: inline-block;
             padding: 2px 8px;
@@ -888,33 +839,19 @@
                     </div>
                 </div>
                 <div id="commonFields">
-                    <div class="form-group">
-                        <label data-i18n="upstream_modelsurl_label">Models URL</label>
-                        <input type="text" id="upstreamModelsUrl" data-i18n-placeholder="upstream_modelsurl_placeholder" placeholder="留空则使用默认值">
-                        <div style="font-size: 12px; color: #999; margin-top: 4px;" data-i18n="upstream_modelsurl_hint">用于获取上游模型列表</div>
-                    </div>
-                    <div class="form-group" id="protocolGroup">
-                        <label data-i18n="upstream_protocol_label">协议支持</label>
-                        <div class="protocol-cards">
-                            <div class="protocol-card active" id="openaiProtocolCard" onclick="toggleProtocolCard('openai')">
-                                <div class="protocol-card-header">
-                                    <span class="protocol-card-name">OpenAI</span>
-                                    <label class="switch" onclick="event.stopPropagation()">
-                                        <input type="checkbox" id="upstreamSupportOpenai" checked onchange="updateProtocolCard('openai')">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div class="protocol-card-desc">chat/completions, responses</div>
+                    <div class="form-group" id="anthropicGroup">
+                        <label data-i18n="anthropic_label">Anthropic 协议</label>
+                        <div style="padding: 10px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                <span data-i18n="anthropic_support">支持</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="upstreamSupportAnthropic" onchange="toggleAnthropicBaseUrl()">
+                                    <span class="slider"></span>
+                                </label>
                             </div>
-                            <div class="protocol-card" id="anthropicProtocolCard" onclick="toggleProtocolCard('anthropic')">
-                                <div class="protocol-card-header">
-                                    <span class="protocol-card-name">Anthropic</span>
-                                    <label class="switch" onclick="event.stopPropagation()">
-                                        <input type="checkbox" id="upstreamSupportAnthropic" onchange="updateProtocolCard('anthropic')">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div class="protocol-card-desc">messages</div>
+                            <div id="anthropicBaseUrlContainer" style="display: none;">
+                                <input type="text" id="upstreamAnthropicBaseUrl" data-i18n-placeholder="anthropic_baseurl_placeholder" placeholder="留空则使用上方的 base URL">
+                                <div style="font-size: 12px; color: #999; margin-top: 4px;" data-i18n="anthropic_baseurl_hint">Anthropic messages 协议的独立 base URL，留空则与 OpenAI 一致</div>
                             </div>
                         </div>
                     </div>
@@ -1024,10 +961,11 @@
                 upstream_baseurl_label: "基础 URL *",
                 upstream_apikey_label: "API 密钥",
                 upstream_apikey_placeholder: "留空表示不需要密钥",
-                upstream_modelsurl_label: "Models URL",
-                upstream_modelsurl_placeholder: "留空则使用 {base_url}/v1/models",
-                upstream_modelsurl_hint: "用于获取上游模型列表，默认 {base_url}/v1/models",
-                upstream_protocol_label: "协议支持",
+                upstream_protocol_label: "协议支持", // deprecated
+                anthropic_label: "Anthropic 协议",
+                anthropic_support: "支持",
+                anthropic_baseurl_placeholder: "留空则使用上方的 base URL",
+                anthropic_baseurl_hint: "Anthropic messages 协议的独立 base URL，留空则与 OpenAI 一致",
                 alias_name_label: "别名 *",
                 alias_name_placeholder: "本地使用的别名",
                 alias_upstream_label: "上游 *",
@@ -1140,10 +1078,11 @@
                 upstream_baseurl_label: "Base URL *",
                 upstream_apikey_label: "API Key",
                 upstream_apikey_placeholder: "Leave empty if no key needed",
-                upstream_modelsurl_label: "Models URL",
-                upstream_modelsurl_placeholder: "Leave empty for {base_url}/v1/models",
-                upstream_modelsurl_hint: "URL to fetch upstream model list, defaults to {base_url}/v1/models",
-                upstream_protocol_label: "Protocol Support",
+                upstream_protocol_label: "Protocol Support", // deprecated
+                anthropic_label: "Anthropic Protocol",
+                anthropic_support: "Support",
+                anthropic_baseurl_placeholder: "Leave empty to use the base URL above",
+                anthropic_baseurl_hint: "Independent base URL for Anthropic messages protocol, leaves empty to match OpenAI",
                 alias_name_label: "Alias *",
                 alias_name_placeholder: "Local alias name",
                 alias_upstream_label: "Upstream *",
@@ -1542,16 +1481,14 @@
                             <div class="item-title">${escapeHtml(u.name)}</div>
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
                             <div class="item-detail">${t('api_key_label')} ${u.api_key ? (u.api_key.length > 16 ? u.api_key.substring(0, 8) + '******' + u.api_key.substring(u.api_key.length - 8) : u.api_key) : t('none')}</div>
+                            ${!isCodexUpstream(u) ? `
                             <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_openai !== false ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_openai')">
-                                    OpenAI
-                                </label>
                                 <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
                                     <input type="checkbox" ${u.support_anthropic === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic')">
                                     Anthropic
                                 </label>
                             </div>
+                            ` : ''}
                             ${modelsHtml}
                         </div>
                     </div>
@@ -1669,8 +1606,7 @@
             showStatus(t('status_testing'), 'loading');
 
             try {
-                const modelsUrl = document.getElementById('upstreamModelsUrl').value;
-                const url = modelsUrl ? modelsUrl : `${baseUrl}/v1/models`;
+                const url = `${baseUrl}/v1/models`;
                 const headers = {};
                 const apiKey = document.getElementById('upstreamApiKey').value;
                 if (apiKey && apiKey !== 'none' && apiKey.trim() !== '') {
@@ -1709,30 +1645,15 @@
             document.getElementById('upstreamName').readOnly = true;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
             document.getElementById('upstreamApiKey').value = u.api_key || '';
-            document.getElementById('upstreamSupportOpenai').checked = u.support_openai !== false;
             document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic === true;
-            document.getElementById('upstreamModelsUrl').value = u.models_url || '';
-            updateProtocolCard('openai');
-            updateProtocolCard('anthropic');
+            document.getElementById('upstreamAnthropicBaseUrl').value = u.anthropic_base_url || '';
+            toggleAnthropicBaseUrl();
         }
 
-        function toggleProtocolCard(type) {
-            const checkboxId = type === 'openai' ? 'upstreamSupportOpenai' : 'upstreamSupportAnthropic';
-            const checkbox = document.getElementById(checkboxId);
-            checkbox.checked = !checkbox.checked;
-            updateProtocolCard(type);
-        }
-
-        function updateProtocolCard(type) {
-            const checkboxId = type === 'openai' ? 'upstreamSupportOpenai' : 'upstreamSupportAnthropic';
-            const cardId = type === 'openai' ? 'openaiProtocolCard' : 'anthropicProtocolCard';
-            const checkbox = document.getElementById(checkboxId);
-            const card = document.getElementById(cardId);
-            if (checkbox.checked) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
+        function toggleAnthropicBaseUrl() {
+            const checked = document.getElementById('upstreamSupportAnthropic').checked;
+            const container = document.getElementById('anthropicBaseUrlContainer');
+            container.style.display = checked ? 'block' : 'none';
         }
 
         async function toggleUpstream(index) {
@@ -1798,7 +1719,7 @@
                 return;
             }
 
-            let url = upstream.models_url || `${upstream.base_url}/v1/models`;
+            let url = `${upstream.base_url}/v1/models`;
             const headers = {};
             if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
                 headers['Authorization'] = `Bearer ${upstream.api_key}`;
@@ -1942,9 +1863,8 @@
                 base_url: document.getElementById('upstreamBaseUrl').value,
                 api_key: document.getElementById('upstreamApiKey').value || null,
                 enabled: enabledElement ? enabledElement.checked : true,
-                support_openai: document.getElementById('upstreamSupportOpenai').checked,
                 support_anthropic: document.getElementById('upstreamSupportAnthropic').checked,
-                models_url: document.getElementById('upstreamModelsUrl').value || undefined
+                anthropic_base_url: document.getElementById('upstreamAnthropicBaseUrl').value || undefined
             };
 
             const index = config.upstreams.findIndex(u => u.name === name);
@@ -1962,7 +1882,7 @@
         }
 
         async function fetchUpstreamModels(upstream) {
-            let url = upstream.models_url || `${upstream.base_url}/v1/models`;
+            let url = `${upstream.base_url}/v1/models`;
             const headers = {};
             if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
                 headers['Authorization'] = `Bearer ${upstream.api_key}`;
@@ -2405,7 +2325,7 @@
             }
 
             // API Key upstream: use direct fetch
-            let url = upstream.models_url || `${upstream.base_url}/v1/models`;
+            let url = `${upstream.base_url}/v1/models`;
             const headers = {};
             if (upstream.auth) {
                 if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
@@ -2489,16 +2409,14 @@
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
                             ${!isOAuth ? `<div class="item-detail">${t('api_key_label')} ${apiKeyDisplay}</div>` : ''}
                             ${tokenStatus}
+                            ${!isCodexUpstream(u) ? `
                             <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_openai !== false ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_openai')">
-                                    OpenAI
-                                </label>
                                 <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
                                     <input type="checkbox" ${u.support_anthropic === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic')">
                                     Anthropic
                                 </label>
                             </div>
+                            ` : ''}
                             ${modelsHtml}
                         </div>
                     </div>
@@ -2523,15 +2441,14 @@
                 name: name,
                 base_url: document.getElementById('upstreamBaseUrl').value,
                 enabled: enabledElement ? enabledElement.checked : true,
-                support_openai: document.getElementById('upstreamSupportOpenai').checked,
                 support_anthropic: document.getElementById('upstreamSupportAnthropic').checked,
-                models_url: document.getElementById('upstreamModelsUrl').value || undefined
+                anthropic_base_url: document.getElementById('upstreamAnthropicBaseUrl').value || undefined
             };
 
             if (authType === 'codex') {
                 upstream.api_type = 'chatgpt_codex';
-                upstream.support_openai = true;
                 upstream.support_anthropic = false;
+                upstream.anthropic_base_url = undefined;
                 upstream.auth = {
                     type: 'oauth_device',
                     client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
@@ -2565,11 +2482,9 @@
             document.getElementById('upstreamName').value = u.name;
             document.getElementById('upstreamName').readOnly = true;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
-            document.getElementById('upstreamSupportOpenai').checked = u.support_openai !== false;
             document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic === true;
-            document.getElementById('upstreamModelsUrl').value = u.models_url || '';
-            updateProtocolCard('openai');
-            updateProtocolCard('anthropic');
+            document.getElementById('upstreamAnthropicBaseUrl').value = u.anthropic_base_url || '';
+            toggleAnthropicBaseUrl();
 
             if (isCodexUpstream(u)) {
                 document.getElementById('upstreamAuthType').value = 'codex';
@@ -2589,6 +2504,7 @@
             document.getElementById('upstreamName').readOnly = false;
             document.getElementById('upstreamForm').reset();
             document.getElementById('upstreamAuthType').value = 'api_key';
+            document.getElementById('anthropicBaseUrlContainer').style.display = 'none';
             toggleAuthFields();
         };
 
@@ -2599,6 +2515,7 @@
             document.getElementById('upstreamForm').reset();
             document.getElementById('upstreamName').readOnly = false;
             document.getElementById('upstreamAuthType').value = 'api_key';
+            document.getElementById('anthropicBaseUrlContainer').style.display = 'none';
             toggleAuthFields();
         };
 
@@ -2641,7 +2558,7 @@
                         // ignore — user can still type manually
                     }
                 } else {
-                    let url = upstream.models_url || `${upstream.base_url}/v1/models`;
+                    let url = `${upstream.base_url}/v1/models`;
                     const headers = {};
                     if (upstream.auth) {
                         if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
@@ -2686,8 +2603,7 @@
             showStatus(t('status_testing'), 'loading');
 
             try {
-                const modelsUrl = document.getElementById('upstreamModelsUrl').value;
-                const url = modelsUrl ? modelsUrl : `${baseUrl}/v1/models`;
+                const url = `${baseUrl}/v1/models`;
                 const headers = {};
                 const apiKey = document.getElementById('upstreamApiKey').value;
                 if (apiKey && apiKey !== 'none' && apiKey.trim() !== '') {

@@ -9,7 +9,6 @@ upstreams:
     enabled: true
     support_openai: true      # 支持 OpenAI 协议 (chat/completions, responses)
     support_anthropic: false   # 不支持 Anthropic 协议 (messages)
-    # models_url: http://127.0.0.1:30002/v1/models  # 可选，默认 {base_url}/v1/models
 
   # 上游 2: OpenAI 兼容服务
   - name: omlx

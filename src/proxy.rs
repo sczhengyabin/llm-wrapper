@@ -57,8 +57,13 @@ impl Proxy {
         // 根据 api_type 重写路径
         let upstream_path = transform_upstream_path(&route.api_type, &path);
 
-        // 构建上游 URL
-        let upstream_url = format!("{}{}", route.upstream_base_url, upstream_path);
+        // 构建上游 URL（Anthropic 协议可能使用独立的 base URL）
+        let effective_base_url = if path == "/v1/messages" {
+            route.anthropic_base_url.as_ref().unwrap_or(&route.upstream_base_url)
+        } else {
+            &route.upstream_base_url
+        };
+        let upstream_url = format!("{}{}", effective_base_url, upstream_path);
 
         debug!("代理请求到上游：{}", upstream_url);
 

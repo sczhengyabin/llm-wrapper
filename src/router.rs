@@ -23,6 +23,8 @@ pub struct RouteResult {
     pub support_openai: bool,
     /// 是否支持 Anthropic 协议
     pub support_anthropic: bool,
+    /// Anthropic 协议独立的 base URL（留空则使用 upstream_base_url）
+    pub anthropic_base_url: Option<String>,
 }
 
 /// 路由器，处理模型到上游的映射
@@ -61,6 +63,7 @@ impl ModelRouter {
                 default_params: HashMap::new(),
                 support_openai: upstream.support_openai,
                 support_anthropic: upstream.support_anthropic,
+                anthropic_base_url: upstream.anthropic_base_url.clone(),
             });
         }
 
@@ -101,6 +104,7 @@ impl ModelRouter {
             default_params,
             support_openai: upstream.support_openai,
             support_anthropic: upstream.support_anthropic,
+            anthropic_base_url: upstream.anthropic_base_url.clone(),
         })
     }
 

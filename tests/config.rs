@@ -67,7 +67,7 @@ fn test_save_and_load_config() {
             enabled: true,
             support_openai: true,
             support_anthropic: false,
-            models_url: None,
+            anthropic_base_url: None,
         }],
         aliases: vec![ModelAlias {
             alias: "alias1".to_string(),
@@ -102,7 +102,7 @@ fn test_save_config_with_param_overrides() {
             enabled: true,
             support_openai: true,
             support_anthropic: false,
-            models_url: None,
+            anthropic_base_url: None,
         }],
         aliases: vec![ModelAlias {
             alias: "my-model".to_string(),
