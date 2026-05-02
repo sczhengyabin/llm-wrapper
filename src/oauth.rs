@@ -6,7 +6,10 @@ use std::collections::HashMap;
 
 /// 以所有者独占权限写入文件（0600）
 #[cfg(unix)]
-async fn write_private_file<P: AsRef<std::path::Path>>(path: P, content: String) -> std::io::Result<()> {
+async fn write_private_file<P: AsRef<std::path::Path>>(
+    path: P,
+    content: String,
+) -> std::io::Result<()> {
     #[allow(unused_imports)]
     use std::os::unix::fs::OpenOptionsExt;
     let mut file = tokio::fs::OpenOptions::new()
@@ -20,7 +23,10 @@ async fn write_private_file<P: AsRef<std::path::Path>>(path: P, content: String)
 }
 
 #[cfg(not(unix))]
-async fn write_private_file<P: AsRef<std::path::Path>>(path: P, content: String) -> std::io::Result<()> {
+async fn write_private_file<P: AsRef<std::path::Path>>(
+    path: P,
+    content: String,
+) -> std::io::Result<()> {
     tokio::fs::write(path, content).await.map(drop)
 }
 use std::path::PathBuf;
@@ -144,8 +150,13 @@ impl AuthManager {
     ) -> Option<String> {
         match auth {
             UpstreamAuth::ApiKey { key } => key.clone(),
-            UpstreamAuth::OAuthDevice { client_id, token_url, .. } => {
-                self.get_oauth_token(upstream_name, client_id, token_url).await
+            UpstreamAuth::OAuthDevice {
+                client_id,
+                token_url,
+                ..
+            } => {
+                self.get_oauth_token(upstream_name, client_id, token_url)
+                    .await
             }
         }
     }
@@ -169,7 +180,9 @@ impl AuthManager {
             if let Some(ref rt) = token.refresh_token {
                 let rt = rt.clone();
                 drop(cache);
-                return self.try_refresh(upstream_name, client_id, token_url, &rt).await;
+                return self
+                    .try_refresh(upstream_name, client_id, token_url, &rt)
+                    .await;
             }
 
             return None;
@@ -267,8 +280,8 @@ impl AuthManager {
         scope: Option<&str>,
     ) -> Result<DeviceAuthSession, String> {
         // Detect OpenAI custom flow
-        let is_openai = device_auth_url.contains("auth.openai.com")
-            && device_auth_url.contains("deviceauth");
+        let is_openai =
+            device_auth_url.contains("auth.openai.com") && device_auth_url.contains("deviceauth");
 
         if is_openai {
             self.initiate_openai_device_auth(upstream_name, client_id, device_auth_url, token_url)
@@ -329,17 +342,15 @@ impl AuthManager {
         };
 
         // Notify frontend
-        let _ = self
-            .completion_tx
-            .send((
-                upstream_name.to_string(),
-                DeviceAuthStatus::Pending {
-                    user_code: session.user_code.clone(),
-                    verification_uri: session.verification_uri.clone(),
-                    verification_uri_complete: session.verification_uri_complete.clone(),
-                    expires_at: session.expires_at.to_rfc3339(),
-                },
-            ));
+        let _ = self.completion_tx.send((
+            upstream_name.to_string(),
+            DeviceAuthStatus::Pending {
+                user_code: session.user_code.clone(),
+                verification_uri: session.verification_uri.clone(),
+                verification_uri_complete: session.verification_uri_complete.clone(),
+                expires_at: session.expires_at.to_rfc3339(),
+            },
+        ));
 
         // Spawn poller for OpenAI flow
         self.spawn_openai_poller(
@@ -411,17 +422,15 @@ impl AuthManager {
             interval,
         };
 
-        let _ = self
-            .completion_tx
-            .send((
-                upstream_name.to_string(),
-                DeviceAuthStatus::Pending {
-                    user_code: session.user_code.clone(),
-                    verification_uri: session.verification_uri.clone(),
-                    verification_uri_complete: session.verification_uri_complete.clone(),
-                    expires_at: session.expires_at.to_rfc3339(),
-                },
-            ));
+        let _ = self.completion_tx.send((
+            upstream_name.to_string(),
+            DeviceAuthStatus::Pending {
+                user_code: session.user_code.clone(),
+                verification_uri: session.verification_uri.clone(),
+                verification_uri_complete: session.verification_uri_complete.clone(),
+                expires_at: session.expires_at.to_rfc3339(),
+            },
+        ));
 
         self.spawn_standard_poller(
             upstream_name.to_string(),
@@ -509,10 +518,7 @@ impl AuthManager {
                         ("grant_type", "authorization_code"),
                         ("client_id", &client_id),
                         ("code", &auth_code_resp.authorization_code),
-                        (
-                            "code_verifier",
-                            &auth_code_resp.code_verifier,
-                        ),
+                        ("code_verifier", &auth_code_resp.code_verifier),
                         (
                             "redirect_uri",
                             "https://auth.openai.com/deviceauth/callback",
@@ -525,8 +531,8 @@ impl AuthManager {
                     Ok(resp) if resp.status().is_success() => {
                         match resp.json::<OAuthTokenResponse>().await {
                             Ok(token_resp) => {
-                                let expires_at =
-                                    Utc::now() + chrono::Duration::seconds(token_resp.expires_in as i64);
+                                let expires_at = Utc::now()
+                                    + chrono::Duration::seconds(token_resp.expires_in as i64);
 
                                 let new_token = CachedToken {
                                     access_token: token_resp.access_token.clone(),
@@ -536,9 +542,7 @@ impl AuthManager {
                                 };
 
                                 let mut cache_guard = cache.lock().await;
-                                cache_guard
-                                    .tokens
-                                    .insert(upstream_name.clone(), new_token);
+                                cache_guard.tokens.insert(upstream_name.clone(), new_token);
                                 drop(cache_guard);
 
                                 if let Some(parent) = cache_path.parent() {
@@ -553,7 +557,10 @@ impl AuthManager {
                                 let _ = tx.send((
                                     upstream_name.clone(),
                                     DeviceAuthStatus::Success {
-                                        message: format!("Authorization successful for {}", upstream_name),
+                                        message: format!(
+                                            "Authorization successful for {}",
+                                            upstream_name
+                                        ),
                                         expires_at: Some(expires_at.to_rfc3339()),
                                     },
                                 ));
@@ -564,10 +571,7 @@ impl AuthManager {
                         }
                     }
                     Ok(resp) => {
-                        warn!(
-                            "Token exchange failed: {}",
-                            resp.status()
-                        );
+                        warn!("Token exchange failed: {}", resp.status());
                     }
                     Err(e) => {
                         warn!("Token exchange request failed: {}", e);
@@ -611,10 +615,7 @@ impl AuthManager {
                 }
 
                 let mut form = vec![
-                    (
-                        "grant_type",
-                        "urn:ietf:params:oauth:grant-type:device_code",
-                    ),
+                    ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                     ("client_id", &client_id),
                     ("device_code", &device_code),
                 ];

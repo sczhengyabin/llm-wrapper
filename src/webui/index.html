@@ -270,6 +270,41 @@
             cursor: not-allowed;
             opacity: 0.6;
         }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .section-header h2 {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        .global-config-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .global-config-text {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        .global-config-text > span:first-child {
+            font-weight: 600;
+            font-size: 13px;
+            color: #555;
+        }
+        .global-config-hint {
+            font-size: 11px;
+            color: #999;
+        }
         .modal {
             display: none;
             position: fixed;
@@ -743,7 +778,19 @@
 
         <!-- Upstream Config -->
         <div class="section">
-            <h2 data-i18n="section_upstreams">上游配置</h2>
+            <div class="section-header">
+                <h2 data-i18n="section_upstreams">上游配置</h2>
+                <label class="global-config-label">
+                    <div class="global-config-text">
+                        <span data-i18n="global_protocol_conversion">协议转换</span>
+                        <span class="global-config-hint" data-i18n="global_protocol_conversion_hint">启用后，客户端协议与上游协议不匹配时自动转换</span>
+                    </div>
+                    <div class="switch">
+                        <input type="checkbox" id="allow_protocol_conversion" onchange="toggleProtocolConversion()">
+                        <span class="slider"></span>
+                    </div>
+                </label>
+            </div>
             <button class="btn" data-i18n="btn_add_upstream" onclick="openUpstreamModal()">添加上游</button>
             <div class="item-list" id="upstreamList">
                 <div class="empty-state" data-i18n="loading">加载中...</div>
@@ -839,11 +886,25 @@
                     </div>
                 </div>
                 <div id="commonFields">
-                    <div class="form-group" id="anthropicGroup">
-                        <label data-i18n="anthropic_label">Anthropic 协议</label>
+                    <div class="form-group" id="protocolSupportGroup">
+                        <label data-i18n="protocols_label">协议支持</label>
                         <div style="padding: 10px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px;">
                             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                                <span data-i18n="anthropic_support">支持</span>
+                                <span data-i18n="protocol_chat_completions">Chat Completions</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="upstreamSupportChat" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                <span data-i18n="protocol_responses">Responses</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="upstreamSupportResponses">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                <span data-i18n="protocol_anthropic_messages">Anthropic Messages</span>
                                 <label class="switch">
                                     <input type="checkbox" id="upstreamSupportAnthropic" onchange="toggleAnthropicBaseUrl()">
                                     <span class="slider"></span>
@@ -962,8 +1023,14 @@
                 upstream_apikey_label: "API 密钥",
                 upstream_apikey_placeholder: "留空表示不需要密钥",
                 upstream_protocol_label: "协议支持", // deprecated
-                anthropic_label: "Anthropic 协议",
-                anthropic_support: "支持",
+                anthropic_label: "Anthropic 协议", // deprecated
+                anthropic_support: "支持", // deprecated
+                protocols_label: "协议支持",
+                protocol_chat_completions: "Chat Completions",
+                protocol_responses: "Responses",
+                protocol_anthropic_messages: "Anthropic Messages",
+                global_protocol_conversion: "协议转换",
+                global_protocol_conversion_hint: "启用后，客户端协议与上游协议不匹配时自动转换",
                 anthropic_baseurl_placeholder: "留空则使用上方的 base URL",
                 anthropic_baseurl_hint: "Anthropic messages 协议的独立 base URL，留空则与 OpenAI 一致",
                 alias_name_label: "别名 *",
@@ -1079,8 +1146,14 @@
                 upstream_apikey_label: "API Key",
                 upstream_apikey_placeholder: "Leave empty if no key needed",
                 upstream_protocol_label: "Protocol Support", // deprecated
-                anthropic_label: "Anthropic Protocol",
-                anthropic_support: "Support",
+                anthropic_label: "Anthropic Protocol", // deprecated
+                anthropic_support: "Support", // deprecated
+                protocols_label: "Protocol Support",
+                protocol_chat_completions: "Chat Completions",
+                protocol_responses: "Responses",
+                protocol_anthropic_messages: "Anthropic Messages",
+                global_protocol_conversion: "Protocol Conversion",
+                global_protocol_conversion_hint: "When enabled, automatically convert between client and upstream protocols",
                 anthropic_baseurl_placeholder: "Leave empty to use the base URL above",
                 anthropic_baseurl_hint: "Independent base URL for Anthropic messages protocol, leaves empty to match OpenAI",
                 alias_name_label: "Alias *",
@@ -1426,6 +1499,11 @@
             try {
                 const response = await fetch('/api/config');
                 config = await response.json();
+                // Set global toggle state
+                const toggle = document.getElementById('allow_protocol_conversion');
+                if (toggle) {
+                    toggle.checked = config.allow_protocol_conversion === true;
+                }
                 renderUpstreams();
                 renderAliases();
                 renderAggregatedModels();
@@ -1484,7 +1562,15 @@
                             ${!isCodexUpstream(u) ? `
                             <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
                                 <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_anthropic === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic')">
+                                    <input type="checkbox" ${u.support_chat_completions === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_chat_completions')">
+                                    Chat
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_responses === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_responses')">
+                                    Responses
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_anthropic_messages === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic_messages')">
                                     Anthropic
                                 </label>
                             </div>
@@ -1645,7 +1731,9 @@
             document.getElementById('upstreamName').readOnly = true;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
             document.getElementById('upstreamApiKey').value = u.api_key || '';
-            document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic === true;
+            document.getElementById('upstreamSupportChat').checked = u.support_chat_completions === true;
+            document.getElementById('upstreamSupportResponses').checked = u.support_responses === true;
+            document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic_messages === true;
             document.getElementById('upstreamAnthropicBaseUrl').value = u.anthropic_base_url || '';
             toggleAnthropicBaseUrl();
         }
@@ -1663,6 +1751,11 @@
 
         async function toggleUpstreamProtocol(index, field) {
             config.upstreams[index][field] = !config.upstreams[index][field];
+            await saveConfig();
+        }
+
+        async function toggleProtocolConversion() {
+            config.allow_protocol_conversion = document.getElementById('allow_protocol_conversion').checked;
             await saveConfig();
         }
 
@@ -1863,7 +1956,9 @@
                 base_url: document.getElementById('upstreamBaseUrl').value,
                 api_key: document.getElementById('upstreamApiKey').value || null,
                 enabled: enabledElement ? enabledElement.checked : true,
-                support_anthropic: document.getElementById('upstreamSupportAnthropic').checked,
+                support_chat_completions: document.getElementById('upstreamSupportChat').checked,
+                support_responses: document.getElementById('upstreamSupportResponses').checked,
+                support_anthropic_messages: document.getElementById('upstreamSupportAnthropic').checked,
                 anthropic_base_url: document.getElementById('upstreamAnthropicBaseUrl').value || undefined
             };
 
@@ -2412,7 +2507,15 @@
                             ${!isCodexUpstream(u) ? `
                             <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
                                 <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_anthropic === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic')">
+                                    <input type="checkbox" ${u.support_chat_completions === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_chat_completions')">
+                                    Chat
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_responses === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_responses')">
+                                    Responses
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                                    <input type="checkbox" ${u.support_anthropic_messages === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic_messages')">
                                     Anthropic
                                 </label>
                             </div>
@@ -2441,13 +2544,17 @@
                 name: name,
                 base_url: document.getElementById('upstreamBaseUrl').value,
                 enabled: enabledElement ? enabledElement.checked : true,
-                support_anthropic: document.getElementById('upstreamSupportAnthropic').checked,
+                support_chat_completions: document.getElementById('upstreamSupportChat').checked,
+                support_responses: document.getElementById('upstreamSupportResponses').checked,
+                support_anthropic_messages: document.getElementById('upstreamSupportAnthropic').checked,
                 anthropic_base_url: document.getElementById('upstreamAnthropicBaseUrl').value || undefined
             };
 
             if (authType === 'codex') {
                 upstream.api_type = 'chatgpt_codex';
-                upstream.support_anthropic = false;
+                upstream.support_chat_completions = false;
+                upstream.support_responses = true;
+                upstream.support_anthropic_messages = false;
                 upstream.anthropic_base_url = undefined;
                 upstream.auth = {
                     type: 'oauth_device',
@@ -2482,7 +2589,9 @@
             document.getElementById('upstreamName').value = u.name;
             document.getElementById('upstreamName').readOnly = true;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
-            document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic === true;
+            document.getElementById('upstreamSupportChat').checked = u.support_chat_completions === true;
+            document.getElementById('upstreamSupportResponses').checked = u.support_responses === true;
+            document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic_messages === true;
             document.getElementById('upstreamAnthropicBaseUrl').value = u.anthropic_base_url || '';
             toggleAnthropicBaseUrl();
 
@@ -2633,6 +2742,11 @@
             try {
                 const response = await fetch('/api/config');
                 config = await response.json();
+                // Set global toggle state
+                const toggle = document.getElementById('allow_protocol_conversion');
+                if (toggle) {
+                    toggle.checked = config.allow_protocol_conversion === true;
+                }
                 renderUpstreams();
                 renderAliases();
                 renderAggregatedModels();

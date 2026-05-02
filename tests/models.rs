@@ -173,3 +173,48 @@ fn test_chat_completion_request_serialization() {
     assert!(parsed["top_p"].is_null());
     assert_eq!(parsed["max_tokens"], 100);
 }
+
+#[test]
+fn test_upstream_config_protocol_fields() {
+    let upstream = UpstreamConfig::new("test".to_string(), "http://localhost:8080".to_string());
+    assert!(upstream.support_chat_completions);
+    assert!(!upstream.support_responses);
+    assert!(!upstream.support_anthropic_messages);
+}
+
+#[test]
+fn test_old_support_openai_json_migration() {
+    // 旧格式 JSON 中 support_openai 应迁移为新字段
+    let json = r#"{
+        "upstreams": [{
+            "name": "test",
+            "base_url": "http://localhost:8080",
+            "enabled": true,
+            "support_openai": true,
+            "support_anthropic": true
+        }]
+    }"#;
+    let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
+    assert_eq!(config.upstreams[0].support_chat_completions, true);
+    assert_eq!(config.upstreams[0].support_responses, true);
+    assert_eq!(config.upstreams[0].support_anthropic_messages, true);
+}
+
+#[test]
+fn test_codex_forces_responses_json() {
+    let json = r#"{
+        "upstreams": [{
+            "name": "codex",
+            "base_url": "https://chatgpt.com/backend-api",
+            "api_type": "chatgpt_codex",
+            "enabled": true,
+            "support_chat_completions": true,
+            "support_anthropic_messages": true
+        }]
+    }"#;
+    let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
+    // Codex 强制只支持 responses
+    assert_eq!(config.upstreams[0].support_chat_completions, false);
+    assert_eq!(config.upstreams[0].support_responses, true);
+    assert_eq!(config.upstreams[0].support_anthropic_messages, false);
+}

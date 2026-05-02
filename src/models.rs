@@ -16,7 +16,9 @@ pub enum ApiType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UpstreamAuth {
-    ApiKey { key: Option<String> },
+    ApiKey {
+        key: Option<String>,
+    },
     #[serde(rename = "oauth_device")]
     OAuthDevice {
         client_id: String,
@@ -139,12 +141,15 @@ pub struct UpstreamConfig {
     /// 是否启用
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// 是否支持 OpenAI 协议 (chat/completions, responses)
+    /// 是否支持 Chat Completions 协议
     #[serde(default = "default_true")]
-    pub support_openai: bool,
-    /// 是否支持 Anthropic 协议 (messages)
+    pub support_chat_completions: bool,
+    /// 是否支持 Responses 协议
     #[serde(default = "default_false")]
-    pub support_anthropic: bool,
+    pub support_responses: bool,
+    /// 是否支持 Anthropic Messages 协议
+    #[serde(default = "default_false")]
+    pub support_anthropic_messages: bool,
     /// Anthropic 协议独立的 base URL（留空则使用 base_url）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anthropic_base_url: Option<String>,
@@ -155,7 +160,7 @@ fn default_api_key_auth() -> UpstreamAuth {
     UpstreamAuth::ApiKey { key: None }
 }
 
-/// 自定义反序列化以兼容旧的 api_key 字段
+/// 自定义反序列化以兼容旧的 api_key 字段和旧的 support_openai/support_anthropic
 impl<'de> serde::Deserialize<'de> for UpstreamConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -171,15 +176,23 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
             api_key: Option<String>,
             auth: Option<UpstreamAuth>,
             enabled: Option<bool>,
+            // Old fields (backward compat)
             support_openai: Option<bool>,
             support_anthropic: Option<bool>,
+            // New fields
+            support_chat_completions: Option<bool>,
+            support_responses: Option<bool>,
+            support_anthropic_messages: Option<bool>,
             anthropic_base_url: Option<String>,
         }
 
         let raw: Raw = serde::Deserialize::deserialize(deserializer)?;
 
         let name = raw.name.ok_or_else(|| D::Error::missing_field("name"))?;
-        let base_url = raw.base_url.ok_or_else(|| D::Error::missing_field("base_url"))?;
+        let base_url = raw
+            .base_url
+            .ok_or_else(|| D::Error::missing_field("base_url"))?;
+        let api_type = raw.api_type.unwrap_or_default();
 
         let auth = match (raw.auth, raw.api_key) {
             (Some(a), _) => a, // 新格式优先
@@ -187,14 +200,46 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
             (None, None) => UpstreamAuth::ApiKey { key: None },
         };
 
+        // 协议能力：新字段优先，旧字段迁移
+        let has_new_fields = raw.support_chat_completions.is_some()
+            || raw.support_responses.is_some()
+            || raw.support_anthropic_messages.is_some();
+
+        let (support_chat_completions, support_responses, support_anthropic_messages) =
+            if has_new_fields {
+                (
+                    raw.support_chat_completions.unwrap_or(true),
+                    raw.support_responses.unwrap_or(false),
+                    raw.support_anthropic_messages.unwrap_or(false),
+                )
+            } else {
+                // 从旧字段迁移
+                let support_openai = raw.support_openai.unwrap_or(true);
+                let support_anthropic = raw.support_anthropic.unwrap_or(false);
+                (support_openai, support_openai, support_anthropic)
+            };
+
+        // Codex 强制只支持 responses
+        let (support_chat_completions, support_responses, support_anthropic_messages) =
+            if api_type == ApiType::ChatGptCodex {
+                (false, true, false)
+            } else {
+                (
+                    support_chat_completions,
+                    support_responses,
+                    support_anthropic_messages,
+                )
+            };
+
         Ok(UpstreamConfig {
             name,
             base_url,
-            api_type: raw.api_type.unwrap_or_default(),
+            api_type,
             auth,
             enabled: raw.enabled.unwrap_or(true),
-            support_openai: raw.support_openai.unwrap_or(true),
-            support_anthropic: raw.support_anthropic.unwrap_or(false),
+            support_chat_completions,
+            support_responses,
+            support_anthropic_messages,
             anthropic_base_url: raw.anthropic_base_url,
         })
     }
@@ -219,8 +264,9 @@ impl UpstreamConfig {
             api_type: ApiType::default(),
             auth: UpstreamAuth::ApiKey { key: None },
             enabled: true,
-            support_openai: true,
-            support_anthropic: false,
+            support_chat_completions: true,
+            support_responses: false,
+            support_anthropic_messages: false,
             anthropic_base_url: None,
         }
     }
@@ -298,6 +344,9 @@ pub struct AppConfig {
     /// 别名列表
     #[serde(default)]
     pub aliases: Vec<ModelAlias>,
+    /// 当上游不支持入口协议时，允许自动转换为上游支持的协议
+    #[serde(default)]
+    pub allow_protocol_conversion: bool,
 }
 
 impl AppConfig {
@@ -407,6 +456,43 @@ mod tests {
         assert_eq!(config2.upstreams.len(), 2);
         assert!(config2.upstreams[0].is_oauth());
         assert!(!config2.upstreams[1].is_oauth());
+        // 旧格式默认 support_openai=true → chat_completions=true + responses=true
+        assert!(config2.upstreams[1].support_chat_completions);
+        assert!(config2.upstreams[1].support_responses);
+    }
+
+    #[test]
+    fn test_old_support_fields_migration() {
+        // 旧字段 support_openai=true, support_anthropic=true
+        let json = r#"{
+            "upstreams": [{
+                "name": "test",
+                "base_url": "http://localhost:8080",
+                "support_openai": true,
+                "support_anthropic": true
+            }]
+        }"#;
+        let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
+        assert!(config.upstreams[0].support_chat_completions);
+        assert!(config.upstreams[0].support_responses);
+        assert!(config.upstreams[0].support_anthropic_messages);
+    }
+
+    #[test]
+    fn test_codex_forces_responses() {
+        let json = r#"{
+            "upstreams": [{
+                "name": "codex",
+                "base_url": "https://chatgpt.com/backend-api",
+                "api_type": "chatgpt_codex",
+                "support_chat_completions": true,
+                "support_anthropic_messages": true
+            }]
+        }"#;
+        let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
+        assert!(!config.upstreams[0].support_chat_completions);
+        assert!(config.upstreams[0].support_responses);
+        assert!(!config.upstreams[0].support_anthropic_messages);
     }
 
     #[test]

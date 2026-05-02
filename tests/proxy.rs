@@ -10,13 +10,16 @@ fn create_test_route(
     RouteResult {
         upstream_base_url: "http://localhost:8080".to_string(),
         upstream_name: "test".to_string(),
-        upstream_auth: UpstreamAuth::ApiKey { key: Some("test-key".to_string()) },
+        upstream_auth: UpstreamAuth::ApiKey {
+            key: Some("test-key".to_string()),
+        },
         api_type: llm_wrapper::models::ApiType::OpenAI,
         target_model: "gpt-4-turbo".to_string(),
         override_params,
         default_params,
-        support_openai: true,
-        support_anthropic: false,
+        support_chat_completions: true,
+        support_responses: true,
+        support_anthropic_messages: false,
         anthropic_base_url: None,
     }
 }
@@ -85,7 +88,7 @@ fn test_apply_extra_body_expand() {
             "chat_template_kwargs": {
                 "enable_thinking": false
             }
-        })
+        }),
     );
     let route = create_test_route(override_params, HashMap::new());
 
@@ -97,7 +100,10 @@ fn test_apply_extra_body_expand() {
     apply_param_overrides_inner(&mut body, &route);
 
     // extra_body 应该展开到请求体顶层
-    assert_eq!(body["chat_template_kwargs"]["enable_thinking"], serde_json::json!(false));
+    assert_eq!(
+        body["chat_template_kwargs"]["enable_thinking"],
+        serde_json::json!(false)
+    );
     // extra_body 键本身不应该存在
     assert!(body.get("extra_body").is_none());
 }

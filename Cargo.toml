@@ -49,6 +49,9 @@ tempfile = "3"
 # Time handling for token expiry
 chrono = { version = "0.4", features = ["serde"] }
 
+# Base64 encoding for image handling
+base64 = "0.22"
+
 # Home directory path for token cache location
 dirs = "5.0"
 

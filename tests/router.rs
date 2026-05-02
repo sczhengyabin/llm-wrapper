@@ -23,7 +23,7 @@ async fn test_route_alias_match() {
           - alias: my-model
             target_model: gpt-4
             upstream: test-upstream
-        "#
+        "#,
     );
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = ConfigManager::new(&config_path).await.unwrap();
@@ -45,7 +45,7 @@ async fn test_route_upstream_direct() {
             base_url: http://localhost:9090
             enabled: true
         aliases: []
-        "#
+        "#,
     );
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = ConfigManager::new(&config_path).await.unwrap();
@@ -68,7 +68,7 @@ async fn test_route_upstream_disabled() {
             base_url: http://localhost:9090
             enabled: false
         aliases: []
-        "#
+        "#,
     );
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = ConfigManager::new(&config_path).await.unwrap();
@@ -85,7 +85,7 @@ async fn test_route_not_found() {
         r#"
         upstreams: []
         aliases: []
-        "#
+        "#,
     );
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = ConfigManager::new(&config_path).await.unwrap();
@@ -111,14 +111,17 @@ async fn test_route_override_params() {
               - key: temperature
                 value: 0.9
                 mode: override
-        "#
+        "#,
     );
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = ConfigManager::new(&config_path).await.unwrap();
     let router = ModelRouter::new(config);
 
     let route = router.route("my-model").await.unwrap();
-    assert_eq!(route.override_params.get("temperature").unwrap(), &serde_json::json!(0.9));
+    assert_eq!(
+        route.override_params.get("temperature").unwrap(),
+        &serde_json::json!(0.9)
+    );
     assert!(route.default_params.is_empty());
 }
 
@@ -138,14 +141,17 @@ async fn test_route_default_params() {
               - key: temperature
                 value: 0.5
                 mode: default
-        "#
+        "#,
     );
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = ConfigManager::new(&config_path).await.unwrap();
     let router = ModelRouter::new(config);
 
     let route = router.route("my-model").await.unwrap();
-    assert_eq!(route.default_params.get("temperature").unwrap(), &serde_json::json!(0.5));
+    assert_eq!(
+        route.default_params.get("temperature").unwrap(),
+        &serde_json::json!(0.5)
+    );
     assert!(route.override_params.is_empty());
 }
 
@@ -158,7 +164,7 @@ async fn test_route_upstream_not_found() {
           - alias: my-model
             target_model: gpt-4
             upstream: nonexistent-upstream
-        "#
+        "#,
     );
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = ConfigManager::new(&config_path).await.unwrap();
@@ -167,4 +173,90 @@ async fn test_route_upstream_not_found() {
     // 上游不存在，应返回 None
     let route = router.route("my-model").await;
     assert!(route.is_none());
+}
+
+#[tokio::test]
+async fn test_route_protocol_supports() {
+    let dir = create_test_config(
+        r#"
+        upstreams:
+          - name: test-upstream
+            base_url: http://localhost:8080
+            enabled: true
+            support_chat_completions: true
+            support_responses: false
+            support_anthropic_messages: true
+        aliases:
+          - alias: my-model
+            target_model: gpt-4
+            upstream: test-upstream
+        "#,
+    );
+    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
+    let config = ConfigManager::new(&config_path).await.unwrap();
+    let router = ModelRouter::new(config);
+
+    let route = router.route("my-model").await.unwrap();
+    assert!(route.supports(llm_wrapper::Protocol::ChatCompletions));
+    assert!(!route.supports(llm_wrapper::Protocol::Responses));
+    assert!(route.supports(llm_wrapper::Protocol::AnthropicMessages));
+}
+
+#[tokio::test]
+async fn test_route_best_available_protocol() {
+    let dir = create_test_config(
+        r#"
+        upstreams:
+          - name: test-upstream
+            base_url: http://localhost:8080
+            enabled: true
+            support_chat_completions: false
+            support_responses: true
+            support_anthropic_messages: false
+        aliases:
+          - alias: my-model
+            target_model: gpt-4
+            upstream: test-upstream
+        "#,
+    );
+    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
+    let config = ConfigManager::new(&config_path).await.unwrap();
+    let router = ModelRouter::new(config);
+
+    let route = router.route("my-model").await.unwrap();
+    // 入口是 ChatCompletions，但上游只支持 Responses
+    // 按优先级：chat → responses → anthropic，所以返回 Responses
+    let best = route.best_available_protocol(llm_wrapper::Protocol::ChatCompletions);
+    assert_eq!(best, Some(llm_wrapper::Protocol::Responses));
+}
+
+#[tokio::test]
+async fn test_route_effective_base_url() {
+    let dir = create_test_config(
+        r#"
+        upstreams:
+          - name: test-upstream
+            base_url: http://localhost:8080
+            enabled: true
+            support_anthropic_messages: true
+            anthropic_base_url: http://localhost:9090
+        aliases:
+          - alias: my-model
+            target_model: gpt-4
+            upstream: test-upstream
+        "#,
+    );
+    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
+    let config = ConfigManager::new(&config_path).await.unwrap();
+    let router = ModelRouter::new(config);
+
+    let route = router.route("my-model").await.unwrap();
+    assert_eq!(
+        route.effective_base_url(llm_wrapper::Protocol::ChatCompletions),
+        "http://localhost:8080"
+    );
+    assert_eq!(
+        route.effective_base_url(llm_wrapper::Protocol::AnthropicMessages),
+        "http://localhost:9090"
+    );
 }

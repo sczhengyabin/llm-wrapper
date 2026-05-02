@@ -3,21 +3,23 @@ use llm_wrapper::models;
 use llm_wrapper::oauth::AuthManager;
 use llm_wrapper::proxy;
 use llm_wrapper::router;
+use llm_wrapper::transform::Protocol;
 
 use llm_wrapper::models::UpstreamAuth;
+use llm_wrapper::proxy::apply_param_overrides_inner;
 use llm_wrapper::proxy::DebugInfo;
 
-use actix_files as fs;
-use actix_web::{web, App, HttpServer, HttpResponse, middleware, Error};
 use actix_cors::Cors;
+use actix_files as fs;
+use actix_web::{middleware, web, App, Error, HttpResponse, HttpServer};
 use config::ConfigManager;
+use futures::{Stream, StreamExt};
 use models::AppConfig;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tracing::info;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use futures::{Stream, StreamExt};
-use std::pin::Pin;
+use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 struct AppState {
     config: ConfigManager,
@@ -37,7 +39,6 @@ impl DebugDataStore {
         let guard = self.data.read().await;
         guard.clone()
     }
-
 }
 
 /// 调试流式广播中心
@@ -55,14 +56,16 @@ impl DebugStreamHub {
     }
 
     /// 创建 SSE 流
-    fn create_stream(&self) -> Pin<Box<dyn Stream<Item = Result<actix_web::web::Bytes, Error>> + Send>> {
+    fn create_stream(
+        &self,
+    ) -> Pin<Box<dyn Stream<Item = Result<actix_web::web::Bytes, Error>> + Send>> {
         let receiver = self.sender.subscribe();
         let stream = tokio_stream::wrappers::BroadcastStream::new(receiver)
-            .map(|result| {
-                match result {
-                    Ok(chunk) => Ok(actix_web::web::Bytes::from(chunk)),
-                    Err(_) => Ok(actix_web::web::Bytes::from("data: {\"error\":\"connection reset\"}\n\n")),
-                }
+            .map(|result| match result {
+                Ok(chunk) => Ok(actix_web::web::Bytes::from(chunk)),
+                Err(_) => Ok(actix_web::web::Bytes::from(
+                    "data: {\"error\":\"connection reset\"}\n\n",
+                )),
             })
             .boxed();
         stream
@@ -82,7 +85,9 @@ async fn main() -> std::io::Result<()> {
 
     // 初始化配置
     let config_path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.yaml".to_string());
-    let config_manager = ConfigManager::new(&config_path).await.expect("无法加载配置");
+    let config_manager = ConfigManager::new(&config_path)
+        .await
+        .expect("无法加载配置");
 
     // 初始化认证管理器
     let auth_manager = AuthManager::new();
@@ -114,12 +119,27 @@ async fn main() -> std::io::Result<()> {
             .route("/api/config", web::get().to(get_config))
             .route("/api/config", web::put().to(update_config))
             .route("/api/upstream-models", web::get().to(get_upstream_models))
-            .route("/api/upstream-models/alias", web::post().to(create_upstream_model_alias))
-            .route("/api/upstream-models/{upstream}", web::get().to(get_upstream_models_by_name))
+            .route(
+                "/api/upstream-models/alias",
+                web::post().to(create_upstream_model_alias),
+            )
+            .route(
+                "/api/upstream-models/{upstream}",
+                web::get().to(get_upstream_models_by_name),
+            )
             // 认证 API
-            .route("/api/auth/login/{upstream_name}", web::post().to(auth_login))
-            .route("/api/auth/status/{upstream_name}", web::get().to(auth_status))
-            .route("/api/auth/token/{upstream_name}", web::delete().to(auth_clear_token))
+            .route(
+                "/api/auth/login/{upstream_name}",
+                web::post().to(auth_login),
+            )
+            .route(
+                "/api/auth/status/{upstream_name}",
+                web::get().to(auth_status),
+            )
+            .route(
+                "/api/auth/token/{upstream_name}",
+                web::delete().to(auth_clear_token),
+            )
             .route("/api/auth/login-stream", web::get().to(auth_login_stream))
             .route("/api/debug", web::get().to(get_debug_data))
             .route("/api/debug", web::delete().to(clear_debug_data))
@@ -147,7 +167,8 @@ async fn get_config(state: web::Data<AppState>) -> HttpResponse {
 async fn update_config(state: web::Data<AppState>, body: web::Json<AppConfig>) -> HttpResponse {
     match state.config.update_config(body.into_inner()).await {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"success": false, "error": e.to_string()})),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(json!({"success": false, "error": e.to_string()})),
     }
 }
 
@@ -156,81 +177,15 @@ async fn chat_completions(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
-    use crate::proxy::Proxy;
-    use crate::router::ModelRouter;
-
-    // 检查是否启用调试模式
-    let debug_mode = req
-        .headers()
-        .get("X-Debug-Mode")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
-    // 获取模型名
-    let model = match body.get("model").and_then(|m| m.as_str()) {
-        Some(m) => m.to_string(),
-        None => return HttpResponse::BadRequest().json(json!({"error": {"message": "缺少 model 参数"}})),
-    };
-
-    let router = ModelRouter::new(state.config.clone());
-    let proxy = Proxy::new(state.auth_manager.clone());
-
-    // 查找路由
-    let route = match router.route(&model).await {
-        Some(r) => r,
-        None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
-    };
-
-    // 检查协议支持
-    if !route.support_openai {
-        return HttpResponse::UnprocessableEntity().json(json!({
-            "error": {"message": "该上游不支持 OpenAI 协议"}
-        }));
-    }
-
-    // 提取客户端信息
-    let client_ip = req.peer_addr()
-        .map(|p| p.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-    let client_url = format!(
-        "{}://{}{}",
-        req.connection_info().scheme(),
-        req.connection_info().host(),
-        req.uri().path()
-    );
-
-    // 代理请求（调试数据在 proxy 内部保存）
-    match proxy.proxy_request_with_debug(
-        &route,
-        "POST".to_string(),
-        "/v1/chat/completions".to_string(),
+    handle_protocol_request(
+        state,
         body.into_inner(),
-        client_ip,
-        client_url,
-        Some(state.debug_data.data.clone()),
-        Some(state.stream_hub.sender.clone()),
-    ).await {
-        Ok(resp) => {
-            if debug_mode {
-                // 返回调试信息（只返回调试数据）
-                let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-                    client_request: serde_json::Value::Null,
-                    client_ip: String::new(),
-                    client_url: String::new(),
-                    endpoint: String::new(),
-                    upstream_url: String::new(),
-                    upstream_request: serde_json::Value::Null,
-                    upstream_response: serde_json::Value::Null,
-                });
-                return HttpResponse::Ok().json(json!({
-                    "debug": debug_info
-                }));
-            }
-            resp
-        }
-        Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
-    }
+        req,
+        Protocol::ChatCompletions,
+        "Chat Completions",
+        "/v1/chat/completions",
+    )
+    .await
 }
 
 async fn responses(
@@ -238,94 +193,15 @@ async fn responses(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
-    use crate::proxy::Proxy;
-    use crate::router::ModelRouter;
-
-    // 检查是否启用调试模式
-    let debug_mode = req
-        .headers()
-        .get("X-Debug-Mode")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
-    // 获取模型名
-    let model = match body.get("model").and_then(|m| m.as_str()) {
-        Some(m) => m.to_string(),
-        None => return HttpResponse::BadRequest().json(json!({"error": {"message": "缺少 model 参数"}})),
-    };
-
-    let router = ModelRouter::new(state.config.clone());
-    let proxy = Proxy::new(state.auth_manager.clone());
-
-    // 查找路由
-    let route = match router.route(&model).await {
-        Some(r) => r,
-        None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
-    };
-
-    // 检查协议支持
-    if !route.support_openai {
-        return HttpResponse::UnprocessableEntity().json(json!({
-            "error": {"message": "该上游不支持 OpenAI 协议"}
-        }));
-    }
-
-    // 提取客户端信息
-    let client_ip = req.peer_addr()
-        .map(|p| p.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-    let client_url = format!(
-        "{}://{}{}",
-        req.connection_info().scheme(),
-        req.connection_info().host(),
-        req.uri().path()
-    );
-
-    // 直接转发到上游的 /v1/responses 端点
-    let original_body = body.into_inner();
-
-    match proxy.proxy_request_with_debug(
-        &route,
-        "POST".to_string(),
-        "/v1/responses".to_string(),
-        original_body,
-        client_ip,
-        client_url,
-        Some(state.debug_data.data.clone()),
-        Some(state.stream_hub.sender.clone()),
-    ).await {
-        Ok(resp) => {
-            if debug_mode {
-                // 返回调试信息（只返回调试数据）
-                let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-                    client_request: serde_json::Value::Null,
-                    client_ip: String::new(),
-                    client_url: String::new(),
-                    endpoint: String::new(),
-                    upstream_url: String::new(),
-                    upstream_request: serde_json::Value::Null,
-                    upstream_response: serde_json::Value::Null,
-                });
-                return HttpResponse::Ok().json(json!({
-                    "debug": debug_info
-                }));
-            }
-            resp
-        }
-        Err(e) => {
-            // 检查是否是上游不支持 Responses API 的错误
-            if e.contains("404") || e.contains("405") {
-                HttpResponse::BadGateway().json(json!({
-                    "error": {
-                        "message": format!("上游服务不支持 Responses API (/v1/responses)，请使用 Chat Completions API (/v1/chat/completions)。错误：{}", e)
-                    }
-                }))
-            } else {
-                HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
-            }
-        }
-    }
+    handle_protocol_request(
+        state,
+        body.into_inner(),
+        req,
+        Protocol::Responses,
+        "Responses",
+        "/v1/responses",
+    )
+    .await
 }
 
 async fn messages(
@@ -333,8 +209,29 @@ async fn messages(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
-    use crate::proxy::Proxy;
-    use crate::router::ModelRouter;
+    handle_protocol_request(
+        state,
+        body.into_inner(),
+        req,
+        Protocol::AnthropicMessages,
+        "Anthropic Messages",
+        "/v1/messages",
+    )
+    .await
+}
+
+/// 通用的协议请求处理器
+/// 支持直接转发和协议转换两种模式
+async fn handle_protocol_request(
+    state: web::Data<AppState>,
+    body: serde_json::Value,
+    req: actix_web::HttpRequest,
+    entry_protocol: Protocol,
+    protocol_name: &str,
+    endpoint_path: &str,
+) -> HttpResponse {
+    use proxy::Proxy;
+    use router::ModelRouter;
 
     // 检查是否启用调试模式
     let debug_mode = req
@@ -347,7 +244,10 @@ async fn messages(
     // 获取模型名
     let model = match body.get("model").and_then(|m| m.as_str()) {
         Some(m) => m.to_string(),
-        None => return HttpResponse::BadRequest().json(json!({"error": {"message": "缺少 model 参数"}})),
+        None => {
+            return HttpResponse::BadRequest()
+                .json(json!({"error": {"message": "缺少 model 参数"}}))
+        }
     };
 
     let router = ModelRouter::new(state.config.clone());
@@ -356,18 +256,84 @@ async fn messages(
     // 查找路由
     let route = match router.route(&model).await {
         Some(r) => r,
-        None => return HttpResponse::BadRequest().json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}})),
+        None => {
+            return HttpResponse::BadRequest()
+                .json(json!({"error": {"message": format!("找不到模型 {} 的路由", model)}}))
+        }
     };
 
-    // 检查协议支持
-    if !route.support_anthropic {
-        return HttpResponse::UnprocessableEntity().json(json!({
-            "error": {"message": "该上游不支持 Anthropic 协议"}
-        }));
+    // 确定是否需要协议转换
+    let needs_conversion = !route.supports(entry_protocol);
+    let target_protocol = if needs_conversion {
+        let config_snapshot = state.config.get_config().await;
+        if !config_snapshot.allow_protocol_conversion {
+            return HttpResponse::UnprocessableEntity().json(json!({
+                "error": {"message": format!("该上游不支持 {0} 协议", protocol_name)}
+            }));
+        }
+        match route.best_available_protocol(entry_protocol) {
+            Some(p) => p,
+            None => {
+                return HttpResponse::UnprocessableEntity().json(json!({
+                    "error": {"message": "该上游不支持任何可用协议"}
+                }))
+            }
+        }
+    } else {
+        entry_protocol
+    };
+
+    // 如果需要转换，先应用 alias 参数覆盖（在客户端协议字段名下），再转换
+    let body_for_conversion = if needs_conversion {
+        let mut b = body.clone();
+        apply_param_overrides_inner(&mut b, &route);
+        b
+    } else {
+        body.clone()
+    };
+
+    // 协议转换（不含图片下载）
+    let mut upstream_body = if needs_conversion {
+        match llm_wrapper::transform::convert_request_with_images(
+            entry_protocol,
+            target_protocol,
+            &body_for_conversion,
+        )
+        .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                return HttpResponse::BadRequest().json(json!({
+                    "error": {"message": format!("请求转换失败：{}", e)}
+                }))
+            }
+        }
+    } else {
+        body.clone()
+    };
+
+    // 如果目标协议是 Anthropic，解析图片 URL 为 base64
+    if needs_conversion && target_protocol == Protocol::AnthropicMessages {
+        upstream_body =
+            match llm_wrapper::transform::resolve_images_for_anthropic(&upstream_body).await {
+                Ok(b) => b,
+                Err(e) => {
+                    return HttpResponse::BadRequest().json(json!({
+                        "error": {"message": format!("图片下载失败：{}", e)}
+                    }))
+                }
+            };
     }
 
+    // 检查是否是流式请求
+    let is_stream = upstream_body
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     // 提取客户端信息
-    let client_ip = req.peer_addr()
+    let client_ip = req
+        .peer_addr()
         .map(|p| p.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string());
     let client_url = format!(
@@ -377,49 +343,170 @@ async fn messages(
         req.uri().path()
     );
 
-    // 直接转发到上游的 /v1/messages 端点
-    let original_body = body.into_inner();
+    if needs_conversion && is_stream {
+        // 流式协议转换
+        return handle_streaming_conversion(
+            &proxy,
+            &route,
+            &upstream_body,
+            target_protocol,
+            entry_protocol,
+        )
+        .await;
+    } else if needs_conversion {
+        // 非流式协议转换
+        match proxy
+            .proxy_request_raw(&route, "POST".to_string(), target_protocol, upstream_body)
+            .await
+        {
+            Ok((status, _headers, body_bytes)) => {
+                // 非 2xx 错误响应直接转发，不做协议转换
+                if status >= 400 {
+                    let status_code = actix_web::http::StatusCode::from_u16(status)
+                        .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY);
 
-    match proxy.proxy_request_with_debug(
-        &route,
-        "POST".to_string(),
-        "/v1/messages".to_string(),
-        original_body,
-        client_ip,
-        client_url,
-        Some(state.debug_data.data.clone()),
-        Some(state.stream_hub.sender.clone()),
-    ).await {
-        Ok(resp) => {
-            if debug_mode {
-                // 返回调试信息（只返回调试数据）
-                let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-                    client_request: serde_json::Value::Null,
-                    client_ip: String::new(),
-                    client_url: String::new(),
-                    endpoint: String::new(),
-                    upstream_url: String::new(),
-                    upstream_request: serde_json::Value::Null,
-                    upstream_response: serde_json::Value::Null,
-                });
-                return HttpResponse::Ok().json(json!({
-                    "debug": debug_info
+                    // 尝试解析为 JSON 返回，否则返回原始文本
+                    if let Ok(err_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+                        return HttpResponse::build(status_code).json(err_json);
+                    }
+
+                    return HttpResponse::build(status_code)
+                        .content_type("text/plain")
+                        .body(body_bytes);
+                }
+
+                let response_json = match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        return HttpResponse::BadGateway().json(json!({
+                            "error": {"message": format!("解析上游响应失败：{}", e)}
+                        }))
+                    }
+                };
+
+                let converted = match llm_wrapper::transform::convert_response(
+                    target_protocol,
+                    entry_protocol,
+                    &response_json,
+                ) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return HttpResponse::BadGateway().json(json!({
+                            "error": {"message": format!("响应转换失败：{}", e)}
+                        }))
+                    }
+                };
+
+                let status_code = actix_web::http::StatusCode::from_u16(status)
+                    .unwrap_or(actix_web::http::StatusCode::OK);
+                HttpResponse::build(status_code).json(converted)
+            }
+            Err(e) => {
+                if e.contains("404") || e.contains("405") {
+                    HttpResponse::BadGateway().json(json!({
+                        "error": {
+                            "message": format!("上游服务不支持目标端点，无法进行协议转换。错误：{}", e)
+                        }
+                    }))
+                } else {
+                    HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
+                }
+            }
+        }
+    } else {
+        // 直接转发 - 原有行为
+        match proxy
+            .proxy_request_with_debug(
+                &route,
+                "POST".to_string(),
+                entry_protocol,
+                body,
+                client_ip,
+                client_url,
+                Some(state.debug_data.data.clone()),
+                Some(state.stream_hub.sender.clone()),
+            )
+            .await
+        {
+            Ok(resp) => {
+                if debug_mode {
+                    let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
+                        client_request: serde_json::Value::Null,
+                        client_ip: String::new(),
+                        client_url: String::new(),
+                        endpoint: String::new(),
+                        upstream_url: String::new(),
+                        upstream_request: serde_json::Value::Null,
+                        upstream_response: serde_json::Value::Null,
+                    });
+                    return HttpResponse::Ok().json(json!({
+                        "debug": debug_info
+                    }));
+                }
+                resp
+            }
+            Err(e) => {
+                // 对 responses/messages 端点提供更友好的错误信息
+                if (entry_protocol == Protocol::Responses
+                    || entry_protocol == Protocol::AnthropicMessages)
+                    && (e.contains("404") || e.contains("405"))
+                {
+                    HttpResponse::BadGateway().json(json!({
+                        "error": {
+                            "message": format!("上游服务不支持 {0} API ({1})。错误：{2}", protocol_name, endpoint_path, e)
+                        }
+                    }))
+                } else {
+                    HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
+                }
+            }
+        }
+    }
+}
+
+/// 处理流式协议转换：发送请求到上游，获取流式响应，转换 SSE 格式后返回
+async fn handle_streaming_conversion(
+    proxy: &llm_wrapper::proxy::Proxy,
+    route: &llm_wrapper::router::RouteResult,
+    upstream_body: &serde_json::Value,
+    target_protocol: Protocol,
+    entry_protocol: Protocol,
+) -> HttpResponse {
+    use llm_wrapper::transform::convert_stream_sse;
+
+    // 使用 proxy 获取原始流式响应
+    match proxy
+        .proxy_request_stream_raw(
+            route,
+            "POST".to_string(),
+            target_protocol,
+            upstream_body.clone(),
+        )
+        .await
+    {
+        Ok((_upstream_url, status, _headers, response)) => {
+            if status == 404 || status == 405 {
+                return HttpResponse::BadGateway().json(json!({
+                    "error": {"message": format!("上游返回 {}", status)}
                 }));
             }
-            resp
+
+            // 获取原始字节流并转换
+            let raw_stream = response
+                .bytes_stream()
+                .map(|result: Result<_, reqwest::Error>| {
+                    result
+                        .map(Vec::from)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                });
+
+            let converted_stream = convert_stream_sse(target_protocol, entry_protocol, raw_stream);
+
+            HttpResponse::Ok()
+                .content_type("text/event-stream")
+                .body(actix_web::body::BodyStream::new(converted_stream))
         }
-        Err(e) => {
-            // 检查是否是上游不支持 Messages API 的错误
-            if e.contains("404") || e.contains("405") {
-                HttpResponse::BadGateway().json(json!({
-                    "error": {
-                        "message": format!("上游服务不支持 Messages API (/v1/messages)。错误：{}", e)
-                    }
-                }))
-            } else {
-                HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
-            }
-        }
+        Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
     }
 }
 
@@ -441,9 +528,7 @@ async fn clear_debug_data(state: web::Data<AppState>) -> HttpResponse {
 }
 
 /// SSE 流式调试端点
-async fn debug_stream(
-    state: web::Data<AppState>,
-) -> impl actix_web::Responder {
+async fn debug_stream(state: web::Data<AppState>) -> impl actix_web::Responder {
     let stream = state.stream_hub.create_stream();
 
     actix_web::HttpResponse::Ok()
@@ -463,7 +548,10 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
     let futures: Vec<_> = unique_upstreams
         .iter()
         .filter_map(|upstream_name| {
-            let up = config.upstreams.iter().find(|up| up.name == *upstream_name && up.enabled)?;
+            let up = config
+                .upstreams
+                .iter()
+                .find(|up| up.name == *upstream_name && up.enabled)?;
             Some(async move {
                 let url = up.get_models_url();
                 let mut request = reqwest::Client::new()
@@ -569,7 +657,8 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
     let config = state.config.get_config().await;
 
     // 并发获取所有启用上游的模型列表
-    let futures: Vec<_> = config.upstreams
+    let futures: Vec<_> = config
+        .upstreams
         .iter()
         .filter(|u| u.enabled)
         .map(|upstream| {
@@ -647,7 +736,9 @@ async fn get_upstream_models_by_name(
     let upstream = upstream.unwrap();
 
     let url = upstream.get_models_url();
-    let mut request = reqwest::Client::new().get(&url).timeout(std::time::Duration::from_secs(5));
+    let mut request = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(5));
 
     match &upstream.auth {
         UpstreamAuth::ApiKey { key } => {
@@ -712,10 +803,7 @@ async fn get_upstream_models_by_name(
 
 // === 认证 API 处理函数 ===
 
-async fn auth_login(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
+async fn auth_login(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let upstream_name = path.into_inner();
     let config = state.config.get_config().await;
 
@@ -752,13 +840,7 @@ async fn auth_login(
 
     match state
         .auth_manager
-        .initiate_device_auth(
-            &upstream.name,
-            client_id,
-            device_auth_url,
-            token_url,
-            scope,
-        )
+        .initiate_device_auth(&upstream.name, client_id, device_auth_url, token_url, scope)
         .await
     {
         Ok(session) => HttpResponse::Ok().json(json!({
@@ -774,19 +856,13 @@ async fn auth_login(
     }
 }
 
-async fn auth_status(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
+async fn auth_status(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let upstream_name = path.into_inner();
     let status = state.auth_manager.get_token_status(&upstream_name).await;
     HttpResponse::Ok().json(status)
 }
 
-async fn auth_clear_token(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
+async fn auth_clear_token(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let upstream_name = path.into_inner();
     state.auth_manager.clear_token(&upstream_name).await;
     HttpResponse::Ok().json(json!({
@@ -836,7 +912,9 @@ async fn create_upstream_model_alias(
     let mut config = state.config.get_config().await;
 
     // 验证上游存在且启用
-    let upstream = config.upstreams.iter()
+    let upstream = config
+        .upstreams
+        .iter()
         .find(|u| u.name == body.upstream && u.enabled);
 
     if upstream.is_none() {

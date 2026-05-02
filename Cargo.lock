@@ -1241,6 +1241,7 @@ dependencies = [
  "actix-files",
  "actix-web",
  "anyhow",
+ "base64",
  "chrono",
  "dirs",
  "futures",

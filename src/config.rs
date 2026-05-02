@@ -1,10 +1,10 @@
 use crate::models::AppConfig;
 use anyhow::Result;
+use notify::Watcher;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
-use std::path::Path;
-use notify::Watcher;
 
 /// 配置管理器，支持热更新
 #[derive(Clone)]
@@ -113,7 +113,10 @@ impl ConfigManager {
     #[allow(dead_code)]
     pub async fn get_upstream(&self, upstream_name: &str) -> Option<crate::models::UpstreamConfig> {
         let guard = self.inner.read().await;
-        guard.config.upstreams.iter()
+        guard
+            .config
+            .upstreams
+            .iter()
             .find(|u| u.name == upstream_name && u.enabled)
             .cloned()
     }
@@ -121,7 +124,12 @@ impl ConfigManager {
     /// 获取所有可用模型列表
     pub async fn get_available_models(&self) -> Vec<String> {
         let guard = self.inner.read().await;
-        guard.config.aliases.iter().map(|a| a.alias.clone()).collect()
+        guard
+            .config
+            .aliases
+            .iter()
+            .map(|a| a.alias.clone())
+            .collect()
     }
 }
 
