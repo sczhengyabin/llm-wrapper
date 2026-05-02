@@ -177,8 +177,7 @@
             gap: 6px;
         }
         .model-tag {
-            background: #e9ecef;
-            color: #495057;
+            display: inline-block;
             padding: 4px 10px;
             border-radius: 4px;
             font-size: 11px;
@@ -192,14 +191,41 @@
             cursor: pointer;
         }
         .model-tag.available {
-            background: #cce5ff;
-            color: #004085;
-            border: 2px dashed #004085;
+            background: #f0f9f0;
+            color: #3d8b3d;
+            border: 2px dashed #a3d9a3;
             cursor: pointer;
         }
         .model-tag.conflict {
-            background: #f8d7da;
-            color: #721c24;
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 2px dashed #fca5a5;
+            cursor: not-allowed;
+        }
+        .proto-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: monospace;
+            cursor: default;
+            min-width: 72px;
+            text-align: center;
+        }
+        .proto-tag.enabled {
+            background: #ede9fe;
+            color: #5b21b6;
+            border: 2px solid #7c3aed;
+            cursor: pointer;
+        }
+        .proto-tag.disabled {
+            background: #faf8ff;
+            color: #8b5fcf;
+            border: 2px dashed #c4b5fd;
+            cursor: pointer;
+        }
+        .proto-tag.fixed {
+            opacity: 0.6;
             cursor: not-allowed;
         }
         .source-tag {
@@ -959,9 +985,12 @@
                 </div>
                 <div class="form-group">
                     <label data-i18n="alias_target_label">目标模型 *</label>
-                    <input type="text" id="aliasTargetSelect" list="aliasTargetDatalist" disabled required placeholder="-- 请先选择上游 --" autocomplete="off">
-                    <datalist id="aliasTargetDatalist"></datalist>
-                    <small class="form-hint" data-i18n="alias_target_hint">可从列表中选择一个模型，或直接输入任意模型名</small>
+                    <select id="aliasTargetSelect" disabled required onchange="onTargetModelChange()">
+                        <option value="">-- 请先选择上游 --</option>
+                    </select>
+                    <div id="aliasCustomModelContainer" style="display: none; margin-top: 8px;">
+                        <input type="text" id="aliasCustomModel" data-i18n-placeholder="alias_custom_model_placeholder" placeholder="输入自定义模型名" autocomplete="off">
+                    </div>
                 </div>
                 <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1049,6 +1078,8 @@
                 alias_load_failed: "加载失败，请直接输入模型名",
                 alias_target_hint: "可从列表中选择一个模型，或直接输入任意模型名",
                 alias_target_placeholder: "输入模型名，如 gpt-5.2-codex",
+                alias_custom_model: "自定义...",
+                alias_custom_model_placeholder: "输入自定义模型名",
                 param_key_placeholder: "参数名",
                 param_value_placeholder: "参数值",
                 param_mode_default: "默认",
@@ -1172,6 +1203,8 @@
                 alias_load_failed: "Load failed, type model name directly",
                 alias_target_hint: "Select from the list or type any model name",
                 alias_target_placeholder: "Type model name, e.g. gpt-5.2-codex",
+                alias_custom_model: "Custom...",
+                alias_custom_model_placeholder: "Enter custom model name",
                 param_key_placeholder: "Parameter name",
                 param_value_placeholder: "Parameter value",
                 param_mode_default: "Default",
@@ -1514,6 +1547,35 @@
             }
         }
 
+        function protoTagHtml(name, enabled, onClick) {
+            const cls = enabled ? 'proto-tag enabled' : 'proto-tag disabled';
+            const onclickAttr = onClick ? `onclick="${onClick}"` : '';
+            return `<span class="${cls}" ${onclickAttr}>${name}</span>`;
+        }
+
+        function renderUpstreamProtocols(u, i) {
+            if (isCodexUpstream(u)) {
+                return `
+                <div class="item-detail" style="margin-top: 4px;">
+                    <div style="font-size: 11px; color: #999; margin-bottom: 4px;">支持协议</div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        ${protoTagHtml('Chat', false, null)}
+                        ${protoTagHtml('Responses', true, null)}
+                        ${protoTagHtml('Anthropic', false, null)}
+                    </div>
+                </div>`;
+            }
+            return `
+            <div class="item-detail" style="margin-top: 4px;">
+                <div style="font-size: 11px; color: #999; margin-bottom: 4px;">支持协议</div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    ${protoTagHtml('Chat', u.support_chat_completions === true, `toggleUpstreamProtocol(${i}, 'support_chat_completions')`)}
+                    ${protoTagHtml('Responses', u.support_responses === true, `toggleUpstreamProtocol(${i}, 'support_responses')`)}
+                    ${protoTagHtml('Anthropic', u.support_anthropic_messages === true, `toggleUpstreamProtocol(${i}, 'support_anthropic_messages')`)}
+                </div>
+            </div>`;
+        }
+
         function renderUpstreams() {
             const list = document.getElementById('upstreamList');
             if (config.upstreams.length === 0) {
@@ -1559,22 +1621,7 @@
                             <div class="item-title">${escapeHtml(u.name)}</div>
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
                             <div class="item-detail">${t('api_key_label')} ${u.api_key ? (u.api_key.length > 16 ? u.api_key.substring(0, 8) + '******' + u.api_key.substring(u.api_key.length - 8) : u.api_key) : t('none')}</div>
-                            ${!isCodexUpstream(u) ? `
-                            <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_chat_completions === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_chat_completions')">
-                                    Chat
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_responses === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_responses')">
-                                    Responses
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_anthropic_messages === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic_messages')">
-                                    Anthropic
-                                </label>
-                            </div>
-                            ` : ''}
+                            ${renderUpstreamProtocols(u, i)}
                             ${modelsHtml}
                         </div>
                     </div>
@@ -1774,11 +1821,11 @@
             editingAliasIndex = -1;
             renderParamOverrides([]);
             updateUpstreamSelect();
-            const input = document.getElementById('aliasTargetSelect');
-            input.value = '';
-            input.placeholder = t('alias_pick_upstream_first');
-            input.disabled = true;
-            document.getElementById('aliasTargetDatalist').innerHTML = '';
+            const select = document.getElementById('aliasTargetSelect');
+            select.innerHTML = `<option value="">${t('alias_pick_upstream_first')}</option>`;
+            select.disabled = true;
+            document.getElementById('aliasCustomModelContainer').style.display = 'none';
+            document.getElementById('aliasCustomModel').value = '';
         }
 
         function closeAliasModal() {
@@ -1800,11 +1847,15 @@
             if (!upstreamName) {
                 select.innerHTML = `<option value="">${t('alias_pick_upstream_first')}</option>`;
                 select.disabled = true;
+                document.getElementById('aliasCustomModelContainer').style.display = 'none';
+                document.getElementById('aliasCustomModel').value = '';
                 return;
             }
 
             select.disabled = false;
             select.innerHTML = `<option value="">${t('alias_loading')}</option>`;
+            document.getElementById('aliasCustomModelContainer').style.display = 'none';
+            document.getElementById('aliasCustomModel').value = '';
 
             const upstream = config.upstreams.find(u => u.name === upstreamName);
             if (!upstream) {
@@ -1812,27 +1863,55 @@
                 return;
             }
 
-            let url = `${upstream.base_url}/v1/models`;
-            const headers = {};
-            if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
-                headers['Authorization'] = `Bearer ${upstream.api_key}`;
+            // Use backend proxy for OAuth/Codex upstreams, direct fetch for API Key
+            let models = [];
+            if (isOAuthUpstream(upstream) || isCodexUpstream(upstream)) {
+                try {
+                    const response = await fetch(`/api/upstream-models/${encodeURIComponent(upstreamName)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        models = (data.data || []).map(m => m.id || m).filter(id => id);
+                    }
+                } catch (e) { /* ignore */ }
+            } else {
+                let url = `${upstream.base_url}/v1/models`;
+                const headers = {};
+                if (upstream.auth) {
+                    if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
+                        headers['Authorization'] = `Bearer ${upstream.auth.key}`;
+                    }
+                } else if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
+                    headers['Authorization'] = `Bearer ${upstream.api_key}`;
+                }
+
+                try {
+                    const response = await fetch(url, { headers });
+                    if (response.ok) {
+                        const data = await response.json();
+                        models = (data.data || []).map(m => m.id).filter(id => id);
+                    }
+                } catch (error) { /* ignore */ }
             }
 
-            try {
-                const response = await fetch(url, { headers });
-                const data = await response.json();
+            if (models.length === 0) {
+                select.innerHTML = `<option value="">${t('alias_no_models')}</option>
+                    <option value="__custom__">${t('alias_custom_model')}</option>`;
+            } else {
+                select.innerHTML = `<option value="">${t('alias_select_model')}</option>` +
+                    models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('') +
+                    `<option value="__custom__">${t('alias_custom_model')}</option>`;
+            }
+        }
 
-                const models = (data.data || []).map(m => m.id).filter(id => id);
-
-                if (models.length === 0) {
-                    select.innerHTML = `<option value="">${t('alias_no_models')}</option>`;
-                } else {
-                    select.innerHTML = `<option value="">${t('alias_select_model')}</option>` +
-                        models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
-                }
-            } catch (error) {
-                select.innerHTML = `<option value="">${t('alias_load_failed')}</option>`;
-                console.error('Failed to load model list:', error);
+        function onTargetModelChange() {
+            const val = document.getElementById('aliasTargetSelect').value;
+            const container = document.getElementById('aliasCustomModelContainer');
+            if (val === '__custom__') {
+                container.style.display = 'block';
+                document.getElementById('aliasCustomModel').focus();
+            } else {
+                container.style.display = 'none';
+                document.getElementById('aliasCustomModel').value = '';
             }
         }
 
@@ -1857,12 +1936,31 @@
             const upstreamSelect = document.getElementById('aliasUpstream');
             upstreamSelect.value = a.upstream;
 
-            const input = document.getElementById('aliasTargetSelect');
-            input.disabled = false;
-            input.value = a.target_model;
-
-            // Populate datalist with available models for suggestions
+            // Populate the select with available models
             await updateTargetSelect();
+
+            const select = document.getElementById('aliasTargetSelect');
+            select.disabled = false;
+
+            // Check if the target model is in the list
+            const options = select.querySelectorAll('option');
+            let found = false;
+            for (const opt of options) {
+                if (opt.value === a.target_model) {
+                    select.value = a.target_model;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                // Model not in list, use custom
+                select.value = '__custom__';
+                document.getElementById('aliasCustomModel').value = a.target_model;
+                document.getElementById('aliasCustomModelContainer').style.display = 'block';
+            } else {
+                document.getElementById('aliasCustomModelContainer').style.display = 'none';
+                document.getElementById('aliasCustomModel').value = '';
+            }
         }
 
         async function deleteAlias(index) {
@@ -2054,7 +2152,10 @@
         async function saveAlias(e) {
             e.preventDefault();
 
-            const targetModel = document.getElementById('aliasTargetSelect').value;
+            let targetModel = document.getElementById('aliasTargetSelect').value;
+            if (targetModel === '__custom__') {
+                targetModel = document.getElementById('aliasCustomModel').value.trim();
+            }
 
             if (!targetModel) {
                 showStatus(t('status_select_model'), 'error');
@@ -2243,8 +2344,24 @@
 
             apiKeyFields.style.display = isCodex ? 'none' : 'block';
             codexFields.style.display = isCodex ? 'block' : 'none';
-            commonFields.style.display = isCodex ? 'none' : 'block';
+            commonFields.style.display = 'block';
             testBtn.style.display = isCodex ? 'none' : 'inline-flex';
+
+            const chatCb = document.getElementById('upstreamSupportChat');
+            const respCb = document.getElementById('upstreamSupportResponses');
+            const anthCb = document.getElementById('upstreamSupportAnthropic');
+            if (isCodex) {
+                chatCb.checked = false;
+                respCb.checked = true;
+                anthCb.checked = false;
+                chatCb.disabled = true;
+                respCb.disabled = true;
+                anthCb.disabled = true;
+            } else {
+                chatCb.disabled = false;
+                respCb.disabled = false;
+                anthCb.disabled = false;
+            }
 
             if (isCodex) {
                 baseUrlInput.value = 'https://chatgpt.com/backend-api';
@@ -2504,22 +2621,7 @@
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
                             ${!isOAuth ? `<div class="item-detail">${t('api_key_label')} ${apiKeyDisplay}</div>` : ''}
                             ${tokenStatus}
-                            ${!isCodexUpstream(u) ? `
-                            <div class="item-detail" style="margin-top: 4px; display: flex; gap: 12px; align-items: center;">
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_chat_completions === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_chat_completions')">
-                                    Chat
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_responses === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_responses')">
-                                    Responses
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
-                                    <input type="checkbox" ${u.support_anthropic_messages === true ? 'checked' : ''} onchange="toggleUpstreamProtocol(${i}, 'support_anthropic_messages')">
-                                    Anthropic
-                                </label>
-                            </div>
-                            ` : ''}
+                            ${renderUpstreamProtocols(u, i)}
                             ${modelsHtml}
                         </div>
                     </div>
@@ -2565,6 +2667,7 @@
             } else {
                 const apiKey = document.getElementById('upstreamApiKey').value || null;
                 upstream.api_key = apiKey;
+                upstream.auth = { type: 'api_key', key: apiKey };
             }
 
             const index = config.upstreams.findIndex(u => u.name === name);
@@ -2626,71 +2729,6 @@
             document.getElementById('upstreamAuthType').value = 'api_key';
             document.getElementById('anthropicBaseUrlContainer').style.display = 'none';
             toggleAuthFields();
-        };
-
-        // Modified updateTargetSelect to handle OAuth upstreams and allow custom model names
-        updateTargetSelect = async function () {
-            const upstreamName = document.getElementById('aliasUpstream').value;
-            const input = document.getElementById('aliasTargetSelect');
-            const datalist = document.getElementById('aliasTargetDatalist');
-
-            if (!upstreamName) {
-                input.value = '';
-                input.placeholder = t('alias_pick_upstream_first');
-                input.disabled = true;
-                datalist.innerHTML = '';
-                return;
-            }
-
-            input.disabled = false;
-            input.placeholder = t('alias_target_placeholder');
-            datalist.innerHTML = `<option value="${t('alias_loading')}">`;
-
-            const upstream = config.upstreams.find(u => u.name === upstreamName);
-            if (!upstream) {
-                datalist.innerHTML = '';
-                return;
-            }
-
-            // Use backend proxy for OAuth/Codex upstreams, direct fetch for API Key
-            let fetchModels = async () => {
-                if (isOAuthUpstream(upstream) || isCodexUpstream(upstream)) {
-                    try {
-                        const response = await fetch(`/api/upstream-models/${encodeURIComponent(upstreamName)}`);
-                        if (response.ok) {
-                            const data = await response.json();
-                            const models = (data.data || []).map(m => m.id || m).filter(id => id);
-                            datalist.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">`).join('');
-                        }
-                        // If 401 or empty, just leave the datalist empty — user can type manually
-                    } catch (e) {
-                        // ignore — user can still type manually
-                    }
-                } else {
-                    let url = `${upstream.base_url}/v1/models`;
-                    const headers = {};
-                    if (upstream.auth) {
-                        if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
-                            headers['Authorization'] = `Bearer ${upstream.auth.key}`;
-                        }
-                    } else if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
-                        headers['Authorization'] = `Bearer ${upstream.api_key}`;
-                    }
-
-                    try {
-                        const response = await fetch(url, { headers });
-                        if (response.ok) {
-                            const data = await response.json();
-                            const models = (data.data || []).map(m => m.id).filter(id => id);
-                            datalist.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">`).join('');
-                        }
-                    } catch (error) {
-                        // ignore — user can still type manually
-                    }
-                }
-            };
-
-            await fetchModels();
         };
 
         // Modified testUpstream to handle OAuth
