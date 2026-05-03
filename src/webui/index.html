@@ -1866,7 +1866,7 @@
 
         async function loadAllUpstreamModels() {
             upstreamModelsCache = {};
-            const promises = config.upstreams.map(u => fetchUpstreamModels(u));
+            const promises = config.upstreams.filter(u => u.enabled).map(u => fetchUpstreamModels(u));
             await Promise.all(promises);
         }
 
@@ -2418,7 +2418,9 @@
             }
             const success = await saveConfig();
             if (success) {
-                await fetchUpstreamModels(upstream);
+                if (upstream.enabled) {
+                    await fetchUpstreamModels(upstream);
+                }
                 renderUpstreams();
                 closeUpstreamModal();
             }
