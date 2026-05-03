@@ -1442,18 +1442,6 @@
             }
         }
 
-        function setDebugData(type, data) {
-            debugData[type] = data;
-            const element = document.getElementById('debug' + type.charAt(0).toUpperCase() + type.slice(1) + 'Json');
-            if (element) {
-                try {
-                    element.textContent = JSON.stringify(typeof data === 'string' ? JSON.parse(data) : data, null, 2);
-                } catch (e) {
-                    element.textContent = data;
-                }
-            }
-        }
-
         async function fetchDebugData() {
             try {
                 const response = await fetch('/api/debug');
@@ -1528,25 +1516,6 @@
             };
         }
 
-        async function loadConfig() {
-            try {
-                const response = await fetch('/api/config');
-                config = await response.json();
-                // Set global toggle state
-                const toggle = document.getElementById('allow_protocol_conversion');
-                if (toggle) {
-                    toggle.checked = config.allow_protocol_conversion === true;
-                }
-                renderUpstreams();
-                renderAliases();
-                renderAggregatedModels();
-                await loadAllUpstreamModels();
-                renderUpstreams();
-            } catch (error) {
-                showStatus(t('status_load_failed') + error.message, 'error');
-            }
-        }
-
         function protoTagHtml(name, enabled, onClick) {
             const cls = enabled ? 'proto-tag enabled' : 'proto-tag disabled';
             const onclickAttr = onClick ? `onclick="${onClick}"` : '';
@@ -1574,64 +1543,6 @@
                     ${protoTagHtml('Anthropic', u.support_anthropic_messages === true, `toggleUpstreamProtocol(${i}, 'support_anthropic_messages')`)}
                 </div>
             </div>`;
-        }
-
-        function renderUpstreams() {
-            const list = document.getElementById('upstreamList');
-            if (config.upstreams.length === 0) {
-                list.innerHTML = `<div class="empty-state">${t('empty_upstreams')}</div>`;
-                return;
-            }
-            list.innerHTML = config.upstreams.map((u, i) => {
-                const models = upstreamModelsCache[u.name] || [];
-                const modelsHtml = models.length > 0
-                    ? `<div class="models-wrapper">
-                        <div class="models-label">${t('available_models')}</div>
-                        <div class="models-grid">
-                            ${models.map(m => {
-                                const existingAlias = config.aliases.find(a =>
-                                    a.target_model === m && a.upstream === u.name && a.source === 'auto'
-                                );
-                                const hasConflict = config.aliases.some(a => a.alias === m);
-
-                                let tagClass = 'model-tag available';
-                                let onclickAttr = `toggleAutoAlias('${u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
-
-                                if (existingAlias) {
-                                    tagClass = 'model-tag enabled';
-                                } else if (hasConflict) {
-                                    tagClass = 'model-tag conflict';
-                                    onclickAttr = null;
-                                }
-
-                                const onclickStr = onclickAttr ? `onclick="${onclickAttr}"` : '';
-                                return `<span class="${tagClass}" ${onclickStr}>${escapeHtml(m)}</span>`;
-                            }).join('')}
-                        </div>
-                    </div>`
-                    : '';
-                return `
-                <div class="item-card">
-                    <div class="item-left">
-                        <label class="switch">
-                            <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream(${i})">
-                            <span class="slider"></span>
-                        </label>
-                        <div class="item-info">
-                            <div class="item-title">${escapeHtml(u.name)}</div>
-                            <div class="item-detail">${escapeHtml(u.base_url)}</div>
-                            <div class="item-detail">${t('api_key_label')} ${u.api_key ? (u.api_key.length > 16 ? u.api_key.substring(0, 8) + '******' + u.api_key.substring(u.api_key.length - 8) : u.api_key) : t('none')}</div>
-                            ${renderUpstreamProtocols(u, i)}
-                            ${modelsHtml}
-                        </div>
-                    </div>
-                    <div class="item-actions">
-                        <button class="btn" onclick="editUpstream(${i})">${t('btn_edit')}</button>
-                        <button class="btn btn-danger" onclick="deleteUpstream(${i})">${t('btn_delete')}</button>
-                    </div>
-                </div>
-                `;
-            }).join('');
         }
 
         function renderAliases() {
@@ -1719,70 +1630,6 @@
 
             html += '</tbody></table>';
             container.innerHTML = html;
-        }
-
-        function openUpstreamModal() {
-            document.getElementById('upstreamModal').classList.add('active');
-            document.getElementById('upstreamModalTitle').textContent = t('modal_add_upstream');
-            document.getElementById('upstreamForm').reset();
-            document.getElementById('upstreamName').readOnly = false;
-        }
-
-        async function testUpstream() {
-            const baseUrl = document.getElementById('upstreamBaseUrl').value;
-
-            if (!baseUrl) {
-                showStatus(t('status_fill_baseurl'), 'error');
-                return;
-            }
-
-            showStatus(t('status_testing'), 'loading');
-
-            try {
-                const url = `${baseUrl}/v1/models`;
-                const headers = {};
-                const apiKey = document.getElementById('upstreamApiKey').value;
-                if (apiKey && apiKey !== 'none' && apiKey.trim() !== '') {
-                    headers['Authorization'] = `Bearer ${apiKey}`;
-                }
-
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: headers,
-                    signal: AbortSignal.timeout(10000)
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    const modelCount = data.data ? data.data.length : 0;
-                    showStatus(t('status_connected', modelCount), 'success');
-                } else {
-                    showStatus(t('status_connect_failed', response.status), 'error');
-                }
-            } catch (error) {
-                showStatus(t('status_connect_error', error.message), 'error');
-            }
-        }
-
-        function closeUpstreamModal() {
-            document.getElementById('upstreamModal').classList.remove('active');
-            document.getElementById('upstreamName').readOnly = false;
-            document.getElementById('upstreamForm').reset();
-        }
-
-        function editUpstream(index) {
-            const u = config.upstreams[index];
-            document.getElementById('upstreamModal').classList.add('active');
-            document.getElementById('upstreamModalTitle').textContent = t('modal_edit_upstream');
-            document.getElementById('upstreamName').value = u.name;
-            document.getElementById('upstreamName').readOnly = true;
-            document.getElementById('upstreamBaseUrl').value = u.base_url;
-            document.getElementById('upstreamApiKey').value = u.api_key || '';
-            document.getElementById('upstreamSupportChat').checked = u.support_chat_completions === true;
-            document.getElementById('upstreamSupportResponses').checked = u.support_responses === true;
-            document.getElementById('upstreamSupportAnthropic').checked = u.support_anthropic_messages === true;
-            document.getElementById('upstreamAnthropicBaseUrl').value = u.anthropic_base_url || '';
-            toggleAnthropicBaseUrl();
         }
 
         function toggleAnthropicBaseUrl() {
@@ -2032,67 +1879,6 @@
                 return JSON.parse(v);
             } catch (e) {}
             return v;
-        }
-
-        function generateUUID() {
-            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-                return crypto.randomUUID();
-            }
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-        }
-
-        async function saveUpstream(e) {
-            e.preventDefault();
-            const name = document.getElementById('upstreamName').value;
-            const enabledElement = document.getElementById('upstreamEnabled');
-            const upstream = {
-                name: name,
-                base_url: document.getElementById('upstreamBaseUrl').value,
-                api_key: document.getElementById('upstreamApiKey').value || null,
-                enabled: enabledElement ? enabledElement.checked : true,
-                support_chat_completions: document.getElementById('upstreamSupportChat').checked,
-                support_responses: document.getElementById('upstreamSupportResponses').checked,
-                support_anthropic_messages: document.getElementById('upstreamSupportAnthropic').checked,
-                anthropic_base_url: document.getElementById('upstreamAnthropicBaseUrl').value || undefined
-            };
-
-            const index = config.upstreams.findIndex(u => u.name === name);
-            if (index !== -1) {
-                config.upstreams[index] = upstream;
-            } else {
-                config.upstreams.push(upstream);
-            }
-            const success = await saveConfig();
-            if (success) {
-                await fetchUpstreamModels(upstream);
-                renderUpstreams();
-                closeUpstreamModal();
-            }
-        }
-
-        async function fetchUpstreamModels(upstream) {
-            let url = `${upstream.base_url}/v1/models`;
-            const headers = {};
-            if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
-                headers['Authorization'] = `Bearer ${upstream.api_key}`;
-            }
-
-            try {
-                const response = await fetch(url, { headers });
-                if (response.ok) {
-                    const data = await response.json();
-                    const models = (data.data || []).map(m => m.id).filter(id => id);
-                    upstreamModelsCache[upstream.name] = models;
-                } else {
-                    upstreamModelsCache[upstream.name] = [];
-                }
-            } catch (error) {
-                upstreamModelsCache[upstream.name] = [];
-            }
         }
 
         async function loadAllUpstreamModels() {
@@ -2514,7 +2300,6 @@
             }, 60000); // every 60 seconds
         }
 
-        // Modified fetchUpstreamModels to handle OAuth/Codex upstreams
         async function fetchUpstreamModels(upstream) {
             if (isOAuthUpstream(upstream) || isCodexUpstream(upstream)) {
                 // OAuth upstream: use backend proxy
@@ -2560,7 +2345,6 @@
             }
         }
 
-        // Modified renderUpstreams to show OAuth info
         renderUpstreams = async function () {
             const list = document.getElementById('upstreamList');
             if (config.upstreams.length === 0) {
@@ -2635,7 +2419,6 @@
             }).join('');
         };
 
-        // Modified saveUpstream to handle auth type
         saveUpstream = async function (e) {
             e.preventDefault();
             const name = document.getElementById('upstreamName').value;
@@ -2684,7 +2467,6 @@
             }
         };
 
-        // Modified editUpstream to handle auth type
         editUpstream = function (index) {
             const u = config.upstreams[index];
             document.getElementById('upstreamModal').classList.add('active');
@@ -2710,7 +2492,6 @@
             toggleAuthFields();
         };
 
-        // Modified closeUpstreamModal to reset auth type
         closeUpstreamModal = function () {
             document.getElementById('upstreamModal').classList.remove('active');
             document.getElementById('upstreamName').readOnly = false;
@@ -2720,7 +2501,6 @@
             toggleAuthFields();
         };
 
-        // Modified openUpstreamModal
         openUpstreamModal = function () {
             document.getElementById('upstreamModal').classList.add('active');
             document.getElementById('upstreamModalTitle').textContent = t('modal_add_upstream');
@@ -2731,7 +2511,6 @@
             toggleAuthFields();
         };
 
-        // Modified testUpstream to handle OAuth
         testUpstream = async function () {
             const baseUrl = document.getElementById('upstreamBaseUrl').value;
             const authType = document.getElementById('upstreamAuthType').value;
