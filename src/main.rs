@@ -344,22 +344,41 @@ async fn handle_protocol_request(
     );
 
     if needs_conversion && is_stream {
-        // 流式协议转换
+        // 流式协议转换（带调试）
         return handle_streaming_conversion(
             &proxy,
             &route,
             &upstream_body,
             target_protocol,
             entry_protocol,
+            &body,
+            client_ip,
+            client_url,
+            endpoint_path,
+            &state.debug_data,
+            &state.stream_hub,
         )
         .await;
     } else if needs_conversion {
-        // 非流式协议转换
+        // 非流式协议转换（带调试）
         match proxy
-            .proxy_request_raw(&route, "POST".to_string(), target_protocol, upstream_body)
+            .proxy_request_raw(&route, "POST".to_string(), target_protocol, upstream_body.clone())
             .await
         {
-            Ok((status, _headers, body_bytes)) => {
+            Ok((upstream_url, status, _headers, body_bytes)) => {
+                // 保存调试信息
+                let debug_info = DebugInfo {
+                    client_request: body.clone(),
+                    client_ip,
+                    client_url,
+                    endpoint: endpoint_path.to_string(),
+                    upstream_url,
+                    upstream_request: upstream_body.clone(),
+                    upstream_response: serde_json::from_slice::<serde_json::Value>(&body_bytes)
+                        .unwrap_or(serde_json::Value::Null),
+                };
+                state.debug_data.data.write().await.replace(debug_info);
+
                 // 非 2xx 错误响应直接转发，不做协议转换
                 if status >= 400 {
                     let status_code = actix_web::http::StatusCode::from_u16(status)
@@ -397,6 +416,22 @@ async fn handle_protocol_request(
                     }
                 };
 
+                // 调试模式下返回调试信息而非业务响应
+                if debug_mode {
+                    let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
+                        client_request: serde_json::Value::Null,
+                        client_ip: String::new(),
+                        client_url: String::new(),
+                        endpoint: String::new(),
+                        upstream_url: String::new(),
+                        upstream_request: serde_json::Value::Null,
+                        upstream_response: serde_json::Value::Null,
+                    });
+                    return HttpResponse::Ok().json(json!({
+                        "debug": debug_info
+                    }));
+                }
+
                 let status_code = actix_web::http::StatusCode::from_u16(status)
                     .unwrap_or(actix_web::http::StatusCode::OK);
                 HttpResponse::build(status_code).json(converted)
@@ -430,18 +465,28 @@ async fn handle_protocol_request(
         {
             Ok(resp) => {
                 if debug_mode {
-                    let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-                        client_request: serde_json::Value::Null,
-                        client_ip: String::new(),
-                        client_url: String::new(),
-                        endpoint: String::new(),
-                        upstream_url: String::new(),
-                        upstream_request: serde_json::Value::Null,
-                        upstream_response: serde_json::Value::Null,
-                    });
-                    return HttpResponse::Ok().json(json!({
-                        "debug": debug_info
-                    }));
+                    // 流式响应不返回 debug JSON，否则流不会被消费，广播也不会触发
+                    // 调试信息通过 /api/debug 端点获取
+                    let is_stream = resp
+                        .headers()
+                        .get(actix_web::http::header::CONTENT_TYPE)
+                        .and_then(|v| v.to_str().ok())
+                        .map(|v| v.contains("text/event-stream"))
+                        .unwrap_or(false);
+                    if !is_stream {
+                        let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
+                            client_request: serde_json::Value::Null,
+                            client_ip: String::new(),
+                            client_url: String::new(),
+                            endpoint: String::new(),
+                            upstream_url: String::new(),
+                            upstream_request: serde_json::Value::Null,
+                            upstream_response: serde_json::Value::Null,
+                        });
+                        return HttpResponse::Ok().json(json!({
+                            "debug": debug_info
+                        }));
+                    }
                 }
                 resp
             }
@@ -471,6 +516,12 @@ async fn handle_streaming_conversion(
     upstream_body: &serde_json::Value,
     target_protocol: Protocol,
     entry_protocol: Protocol,
+    client_request: &serde_json::Value,
+    client_ip: String,
+    client_url: String,
+    endpoint_path: &str,
+    debug_store: &DebugDataStore,
+    stream_hub: &DebugStreamHub,
 ) -> HttpResponse {
     use llm_wrapper::transform::convert_stream_sse;
 
@@ -484,12 +535,27 @@ async fn handle_streaming_conversion(
         )
         .await
     {
-        Ok((_upstream_url, status, _headers, response)) => {
+        Ok((upstream_url, status, _headers, response)) => {
             if status == 404 || status == 405 {
                 return HttpResponse::BadGateway().json(json!({
                     "error": {"message": format!("上游返回 {}", status)}
                 }));
             }
+
+            // 保存初始调试数据（流式响应，upstream_response 为 null）
+            let debug_info = DebugInfo {
+                client_request: client_request.clone(),
+                client_ip,
+                client_url,
+                endpoint: endpoint_path.to_string(),
+                upstream_url,
+                upstream_request: upstream_body.clone(),
+                upstream_response: serde_json::Value::Null,
+            };
+            debug_store.data.write().await.replace(debug_info);
+
+            // 获取 stream_hub 用于广播转换后的 SSE chunk
+            let hub = stream_hub.sender.clone();
 
             // 获取原始字节流并转换
             let raw_stream = response
@@ -502,9 +568,19 @@ async fn handle_streaming_conversion(
 
             let converted_stream = convert_stream_sse(target_protocol, entry_protocol, raw_stream);
 
+            // 广播转换后的 SSE chunk 到调试前端
+            let broadcast_stream = converted_stream.map(move |item| {
+                if let Ok(ref bytes) = item {
+                    if let Ok(text) = std::str::from_utf8(bytes) {
+                        let _ = hub.send(text.to_string());
+                    }
+                }
+                item
+            });
+
             HttpResponse::Ok()
                 .content_type("text/event-stream")
-                .body(actix_web::body::BodyStream::new(converted_stream))
+                .body(actix_web::body::BodyStream::new(broadcast_stream))
         }
         Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
     }

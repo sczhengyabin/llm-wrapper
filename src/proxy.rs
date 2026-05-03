@@ -309,15 +309,16 @@ impl Proxy {
     }
 
     /// 代理请求并返回原始响应数据（用于协议转换场景，非流式）
+    /// 返回 (upstream_url, status, headers, body)
     pub async fn proxy_request_raw(
         &self,
         route: &RouteResult,
         method: String,
         target_protocol: Protocol,
         body: serde_json::Value,
-    ) -> Result<(u16, reqwest::header::HeaderMap, Vec<u8>), String> {
+    ) -> Result<(String, u16, reqwest::header::HeaderMap, Vec<u8>), String> {
         // 构建上游请求
-        let (_upstream_url, request_body_bytes, req_builder) =
+        let (upstream_url, request_body_bytes, req_builder) =
             self.build_upstream_request(route, method, target_protocol, &body)?;
         let req_builder = self.apply_auth(route, req_builder).await;
         let req_builder = Self::apply_protocol_headers(target_protocol, req_builder);
@@ -348,7 +349,7 @@ impl Proxy {
             .await
             .map_err(|e| format!("读取响应失败：{}", e))?;
 
-        Ok((status.as_u16(), headers, body_bytes.to_vec()))
+        Ok((upstream_url, status.as_u16(), headers, body_bytes.to_vec()))
     }
 
     /// 代理请求并返回原始流式响应（用于协议转换场景，流式）
