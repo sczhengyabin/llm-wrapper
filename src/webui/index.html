@@ -1710,34 +1710,17 @@
                 return;
             }
 
-            // Use backend proxy for OAuth/Codex upstreams, direct fetch for API Key
-            let models = [];
-            if (isOAuthUpstream(upstream) || isCodexUpstream(upstream)) {
+            // 优先读缓存，缓存没有时再请求后端
+            let models = upstreamModelsCache[upstreamName] || [];
+            if (models.length === 0) {
                 try {
                     const response = await fetch(`/api/upstream-models/${encodeURIComponent(upstreamName)}`);
                     if (response.ok) {
                         const data = await response.json();
                         models = (data.data || []).map(m => m.id || m).filter(id => id);
+                        upstreamModelsCache[upstreamName] = models;
                     }
                 } catch (e) { /* ignore */ }
-            } else {
-                let url = `${upstream.base_url}/v1/models`;
-                const headers = {};
-                if (upstream.auth) {
-                    if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
-                        headers['Authorization'] = `Bearer ${upstream.auth.key}`;
-                    }
-                } else if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
-                    headers['Authorization'] = `Bearer ${upstream.api_key}`;
-                }
-
-                try {
-                    const response = await fetch(url, { headers });
-                    if (response.ok) {
-                        const data = await response.json();
-                        models = (data.data || []).map(m => m.id).filter(id => id);
-                    }
-                } catch (error) { /* ignore */ }
             }
 
             if (models.length === 0) {
@@ -2301,42 +2284,16 @@
         }
 
         async function fetchUpstreamModels(upstream) {
-            if (isOAuthUpstream(upstream) || isCodexUpstream(upstream)) {
-                // OAuth upstream: use backend proxy
-                try {
-                    const response = await fetch(`/api/upstream-models/${encodeURIComponent(upstream.name)}`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        upstreamModelsCache[upstream.name] = (data.data || []).map(m => m.id || m).filter(id => id);
-                    } else if (response.status === 401) {
-                        upstreamModelsCache[upstream.name] = [];
-                        const err = await response.json().catch(() => ({}));
-                        console.warn('OAuth upstream models fetch failed:', err.error);
-                    } else {
-                        upstreamModelsCache[upstream.name] = [];
-                    }
-                } catch (error) {
-                    upstreamModelsCache[upstream.name] = [];
-                }
-                return;
-            }
-
-            // API Key upstream: use direct fetch
-            let url = `${upstream.base_url}/v1/models`;
-            const headers = {};
-            if (upstream.auth) {
-                if (upstream.auth.type === 'api_key' && upstream.auth.key && upstream.auth.key !== 'none' && upstream.auth.key.trim() !== '') {
-                    headers['Authorization'] = `Bearer ${upstream.auth.key}`;
-                }
-            } else if (upstream.api_key && upstream.api_key !== 'none' && upstream.api_key.trim() !== '') {
-                headers['Authorization'] = `Bearer ${upstream.api_key}`;
-            }
-
+            // 所有上游统一走后端代理，避免前端直连的 CORS 问题
             try {
-                const response = await fetch(url, { headers });
+                const response = await fetch(`/api/upstream-models/${encodeURIComponent(upstream.name)}`);
                 if (response.ok) {
                     const data = await response.json();
-                    upstreamModelsCache[upstream.name] = (data.data || []).map(m => m.id).filter(id => id);
+                    upstreamModelsCache[upstream.name] = (data.data || []).map(m => m.id || m).filter(id => id);
+                } else if (response.status === 401) {
+                    upstreamModelsCache[upstream.name] = [];
+                    const err = await response.json().catch(() => ({}));
+                    console.warn('Upstream models fetch failed (401):', err.error);
                 } else {
                     upstreamModelsCache[upstream.name] = [];
                 }
