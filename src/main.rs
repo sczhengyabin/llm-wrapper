@@ -545,6 +545,7 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
         aliases.iter().map(|a| a.upstream.as_str()).collect();
 
     // 并发获取所有上游的模型列表
+    let auth_manager = state.auth_manager.clone();
     let futures: Vec<_> = unique_upstreams
         .iter()
         .filter_map(|upstream_name| {
@@ -552,15 +553,30 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                 .upstreams
                 .iter()
                 .find(|up| up.name == *upstream_name && up.enabled)?;
+            let auth_manager = auth_manager.clone();
             Some(async move {
                 let url = up.get_models_url();
+                let upstream_name = up.name.clone();
+                let auth = up.auth.clone();
                 let mut request = reqwest::Client::new()
                     .get(&url)
                     .timeout(std::time::Duration::from_secs(2));
-                if let UpstreamAuth::ApiKey { key } = &up.auth {
-                    if let Some(k) = key {
-                        if k != "none" && !k.is_empty() {
-                            request = request.bearer_auth(k);
+
+                match &auth {
+                    UpstreamAuth::ApiKey { key } => {
+                        if let Some(k) = key {
+                            if k != "none" && !k.is_empty() {
+                                request = request.bearer_auth(k);
+                            }
+                        }
+                    }
+                    UpstreamAuth::OAuthDevice { .. } => {
+                        if let Some(token) =
+                            auth_manager.get_access_token(&upstream_name, &auth).await
+                        {
+                            if !token.is_empty() && token != "none" {
+                                request = request.bearer_auth(token);
+                            }
                         }
                     }
                 }
@@ -569,16 +585,8 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                     Ok(resp) => match resp.json::<serde_json::Value>().await {
                         Ok(body) => {
                             let mut models = Vec::new();
-                            if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
-                                for model in data {
-                                    if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
-                                        let max_len = model
-                                            .get("max_model_len")
-                                            .and_then(|v| v.as_u64())
-                                            .map(|v| v as u32);
-                                        models.push((up.name.clone(), id.to_string(), max_len));
-                                    }
-                                }
+                            for (id, max_len) in extract_models_from_upstream_response(&body) {
+                                models.push((up.name.clone(), id, max_len));
                             }
                             models
                         }
@@ -657,6 +665,7 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
     let config = state.config.get_config().await;
 
     // 并发获取所有启用上游的模型列表
+    let auth_manager = state.auth_manager.clone();
     let futures: Vec<_> = config
         .upstreams
         .iter()
@@ -665,26 +674,33 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
             let url = upstream.get_models_url();
             let name = upstream.name.clone();
             let auth = upstream.auth.clone();
-            let mut request = reqwest::Client::new().get(&url);
-            if let UpstreamAuth::ApiKey { key } = &auth {
-                if let Some(k) = key {
-                    if k != "none" && !k.is_empty() {
-                        request = request.bearer_auth(k);
-                    }
-                }
-            }
+            let auth_manager = auth_manager.clone();
 
             async move {
+                let mut request = reqwest::Client::new().get(&url);
+
+                // 同时支持 ApiKey 与 OAuth 上游（如 codex）模型列表拉取
+                let token = match &auth {
+                    UpstreamAuth::ApiKey { key } => key
+                        .as_ref()
+                        .filter(|k| *k != "none" && !k.is_empty())
+                        .cloned(),
+                    UpstreamAuth::OAuthDevice { .. } => auth_manager
+                        .get_access_token(&name, &auth)
+                        .await
+                        .filter(|t| !t.is_empty() && t != "none"),
+                };
+
+                if let Some(token) = token {
+                    request = request.bearer_auth(token);
+                }
+
                 match request.send().await {
                     Ok(resp) => {
                         let mut models = Vec::new();
                         if let Ok(body) = resp.json::<serde_json::Value>().await {
-                            if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
-                                for model in data {
-                                    if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
-                                        models.push(id.to_string());
-                                    }
-                                }
+                            for (id, _) in extract_models_from_upstream_response(&body) {
+                                models.push(id);
                             }
                         }
                         models
@@ -774,12 +790,8 @@ async fn get_upstream_models_by_name(
         Ok(resp) => {
             let mut models = Vec::new();
             if let Ok(body) = resp.json::<serde_json::Value>().await {
-                if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
-                    for model in data {
-                        if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
-                            models.push(id.to_string());
-                        }
-                    }
+                for (id, _) in extract_models_from_upstream_response(&body) {
+                    models.push(id);
                 }
             }
             HttpResponse::Ok().json(json!({
@@ -799,6 +811,40 @@ async fn get_upstream_models_by_name(
             }
         }
     }
+}
+
+fn extract_models_from_upstream_response(body: &serde_json::Value) -> Vec<(String, Option<u32>)> {
+    let mut models = Vec::new();
+
+    // OpenAI-compatible format: {"data":[{"id":"...", "max_model_len": ...}]}
+    if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+        for model in data {
+            if let Some(id) = model.get("id").and_then(|i| i.as_str()) {
+                let max_len = model
+                    .get("max_model_len")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                models.push((id.to_string(), max_len));
+            }
+        }
+        return models;
+    }
+
+    // Codex format: {"models":[{"slug":"...", "context_window": ...}]}
+    if let Some(data) = body.get("models").and_then(|d| d.as_array()) {
+        for model in data {
+            if let Some(slug) = model.get("slug").and_then(|i| i.as_str()) {
+                let max_len = model
+                    .get("max_context_window")
+                    .or_else(|| model.get("context_window"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                models.push((slug.to_string(), max_len));
+            }
+        }
+    }
+
+    models
 }
 
 // === 认证 API 处理函数 ===

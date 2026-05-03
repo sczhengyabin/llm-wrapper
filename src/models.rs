@@ -280,7 +280,8 @@ impl UpstreamConfig {
     /// 获取模型列表 URL
     pub fn get_models_url(&self) -> String {
         if self.api_type == ApiType::ChatGptCodex {
-            format!("{}/codex/models", self.base_url)
+            // Codex models endpoint requires client_version query parameter
+            format!("{}/codex/models?client_version=1.0.0", self.base_url)
         } else {
             format!("{}/v1/models", self.base_url)
         }
