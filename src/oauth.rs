@@ -89,11 +89,14 @@ pub struct AuthManager {
 }
 
 impl AuthManager {
-    pub fn new() -> Self {
-        let cache_path = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".llm-wrapper")
-            .join("tokens.json");
+    pub fn new(cache_dir: Option<&std::path::Path>) -> Self {
+        let cache_path = match cache_dir {
+            Some(dir) => dir.join("tokens.json"),
+            None => dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".llm-wrapper")
+                .join("tokens.json"),
+        };
 
         let (completion_tx, _) = broadcast::channel(32);
 
@@ -754,6 +757,6 @@ impl AuthManager {
 
 impl Default for AuthManager {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }

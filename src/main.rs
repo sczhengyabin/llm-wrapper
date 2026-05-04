@@ -89,8 +89,12 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("无法加载配置");
 
-    // 初始化认证管理器
-    let auth_manager = AuthManager::new();
+    // 初始化认证管理器（token 缓存放在 config 同目录下，便于 Docker 持久化）
+    let cache_dir = std::path::Path::new(&config_path)
+        .parent()
+        .map(|p| p.join(".llm-wrapper"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".llm-wrapper"));
+    let auth_manager = AuthManager::new(Some(&cache_dir));
     auth_manager.load_cache().await;
 
     let debug_store = web::Data::new(DebugDataStore::default());
