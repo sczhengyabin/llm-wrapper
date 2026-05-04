@@ -285,7 +285,10 @@ pub fn convert_stream_sse(
                 Err(e) => Err(anyhow::anyhow!(e)),
             })
             .filter(|item| {
-                futures::future::ready(item.as_ref().map(|s| !s.is_empty()).unwrap_or(false))
+                futures::future::ready(match item {
+                    Ok(s) => !s.is_empty(),
+                    Err(_) => true,
+                })
             })
             .map(|item| match item {
                 Ok(s) => Ok(actix_web::web::Bytes::from(s)),

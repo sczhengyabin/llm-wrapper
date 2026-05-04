@@ -973,7 +973,7 @@ pub fn canonical_to_anthropic_sse(event: &CanonicalStreamEvent) -> Result<String
 pub struct AnthropicSseWrapper {
     sent_message_start: bool,
     sent_content_start: bool,
-    _start_type: Option<&'static str>, // "text" or "thinking"
+    last_index: u64,
     stopped: bool,
 }
 
@@ -982,7 +982,7 @@ impl AnthropicSseWrapper {
         Self {
             sent_message_start: false,
             sent_content_start: false,
-            _start_type: None,
+            last_index: 0,
             stopped: false,
         }
     }
@@ -1074,7 +1074,7 @@ impl AnthropicSseWrapper {
                         "event: content_block_stop\ndata: {}\n\n",
                         serde_json::to_string(&serde_json::json!({
                             "type": "content_block_stop",
-                            "index": 0
+                            "index": self.last_index
                         }))
                         .map_err(|e| anyhow::anyhow!(e))?
                     ),
@@ -1128,7 +1128,7 @@ impl AnthropicSseWrapper {
                 .map_err(|e| anyhow::anyhow!(e))?
             ));
             self.sent_content_start = true;
-            self._start_type = Some(block_type);
+            self.last_index = index;
         }
         Ok(())
     }
