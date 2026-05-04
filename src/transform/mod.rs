@@ -261,29 +261,105 @@ pub fn convert_stream_sse(
     to: Protocol,
     stream: impl Stream<Item = Result<Vec<u8>, std::io::Error>> + Unpin + Send + 'static,
 ) -> Pin<Box<dyn Stream<Item = Result<actix_web::web::Bytes, actix_web::Error>> + Send + 'static>> {
-    use stream::{
-        canonical_to_anthropic_sse, canonical_to_openai_sse, canonical_to_responses_sse,
-        parse_stream_events,
-    };
+    use stream::{canonical_to_openai_sse, canonical_to_responses_sse, parse_stream_events};
 
     let parsed = parse_stream_events(from, stream);
 
-    let out = parsed.map(move |item| match item {
-        Ok(event) => {
-            let sse_str = match to {
-                Protocol::ChatCompletions => canonical_to_openai_sse(&event),
-                Protocol::Responses => canonical_to_responses_sse(&event),
-                Protocol::AnthropicMessages => canonical_to_anthropic_sse(&event),
-            };
-            match sse_str {
+    // Anthropic 需要状态包装器（注入 content_block_start）
+    if to == Protocol::AnthropicMessages {
+        let wrapped = AnthropicStream::new(parsed);
+        let out = wrapped.map(|item| match item {
+            Ok(s) => Ok(actix_web::web::Bytes::from(s)),
+            Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+        });
+        Box::pin(out)
+    } else {
+        // 非 Anthropic：简单转换 + 过滤空字符串
+        let out = parsed
+            .map(move |item| match item {
+                Ok(event) => match to {
+                    Protocol::ChatCompletions => canonical_to_openai_sse(&event),
+                    Protocol::Responses => canonical_to_responses_sse(&event),
+                    Protocol::AnthropicMessages => unreachable!(),
+                },
+                Err(e) => Err(anyhow::anyhow!(e)),
+            })
+            .filter(|item| {
+                futures::future::ready(item.as_ref().map(|s| !s.is_empty()).unwrap_or(false))
+            })
+            .map(|item| match item {
                 Ok(s) => Ok(actix_web::web::Bytes::from(s)),
                 Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+            });
+        Box::pin(out)
+    }
+}
+
+/// Anthropic 流式包装：使用 AnthropicSseWrapper 注入 content_block_start
+struct AnthropicStream<S> {
+    inner: S,
+    wrapper: AnthropicSseWrapper,
+    pending: Vec<Result<String, String>>,
+}
+
+impl<S> AnthropicStream<S> {
+    fn new(inner: S) -> Self {
+        Self {
+            inner,
+            wrapper: AnthropicSseWrapper::new(),
+            pending: Vec::new(),
+        }
+    }
+}
+
+impl<S> Stream for AnthropicStream<S>
+where
+    S: Stream<Item = Result<stream::CanonicalStreamEvent, String>> + Unpin + Send + 'static,
+{
+    type Item = Result<String, String>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
+
+        loop {
+            // 先尝试从 pending 取数据
+            if let Some(item) = this.pending.pop() {
+                // 如果已停止且 pending 已空，返回 item 后下次返回 None
+                if this.wrapper.is_stopped() && this.pending.is_empty() {
+                    return std::task::Poll::Ready(Some(item));
+                }
+                return std::task::Poll::Ready(Some(item));
+            }
+
+            // pending 为空，检查是否已停止
+            if this.wrapper.is_stopped() {
+                return std::task::Poll::Ready(None);
+            }
+
+            // 从内层流获取下一个事件
+            match futures::ready!(std::pin::Pin::new(&mut this.inner).poll_next(cx)) {
+                Some(Ok(event)) => {
+                    match this.wrapper.convert(&event) {
+                        Ok(outputs) => {
+                            // 反转后推入，保持顺序
+                            for s in outputs.into_iter().rev() {
+                                this.pending.push(Ok(s));
+                            }
+                            // 继续循环，从 pending 取数据
+                        }
+                        Err(e) => {
+                            return std::task::Poll::Ready(Some(Err(e.to_string())));
+                        }
+                    }
+                }
+                Some(Err(e)) => return std::task::Poll::Ready(Some(Err(e))),
+                None => return std::task::Poll::Ready(None),
             }
         }
-        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
-    });
-
-    Box::pin(out)
+    }
 }
 
 /// 异步：解析图片 URL 并转为 base64

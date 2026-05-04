@@ -678,7 +678,30 @@ pub fn parse_responses_event(
         }
         "response.output_item.delta" => {
             let item = json.get("item").unwrap_or(&serde_json::Value::Null);
-            if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+            let item_type = item.get("type").and_then(|t| t.as_str());
+
+            // 处理 message 类型的文本增量
+            if item_type == Some("message") {
+                if let Some(delta) = json.get("delta").and_then(|d| d.as_str()) {
+                    if !delta.is_empty() {
+                        return Ok(Some(CanonicalStreamEvent::TextDelta {
+                            text: delta.to_string(),
+                        }));
+                    }
+                }
+                // 也检查 item 中的 content_delta
+                if let Some(delta) = item.get("content_delta").and_then(|d| d.as_str()) {
+                    if !delta.is_empty() {
+                        return Ok(Some(CanonicalStreamEvent::TextDelta {
+                            text: delta.to_string(),
+                        }));
+                    }
+                }
+                return Ok(None);
+            }
+
+            // 处理 function_call 类型的参数增量
+            if item_type == Some("function_call") {
                 let call_id = item
                     .get("id")
                     .or_else(|| item.get("call_id"))
@@ -861,7 +884,7 @@ pub fn canonical_to_openai_sse(event: &CanonicalStreamEvent) -> Result<String> {
     }
 }
 
-/// 将规范流事件转换为 Anthropic SSE 输出
+/// 将规范流事件转换为 Anthropic SSE 输出（无状态版本）
 pub fn canonical_to_anthropic_sse(event: &CanonicalStreamEvent) -> Result<String> {
     match event {
         CanonicalStreamEvent::TextDelta { text } => Ok(format!(
@@ -938,6 +961,202 @@ pub fn canonical_to_anthropic_sse(event: &CanonicalStreamEvent) -> Result<String
         }
         CanonicalStreamEvent::Usage { .. } => Ok(String::new()),
         _ => Ok(String::new()),
+    }
+}
+
+/// Anthropic SSE 输出包装器：注入 message_start 和 content_block_start
+///
+/// Anthropic 客户端期望完整的事件序列：
+/// message_start → content_block_start → content_block_delta → message_delta → message_stop
+/// 但 canonical 事件流中只有 TextDelta/ReasoningDelta/Stop，没有显式的 start 事件。
+/// 此包装器在第一个内容事件之前注入 message_start 和 content_block_start。
+pub struct AnthropicSseWrapper {
+    sent_message_start: bool,
+    sent_content_start: bool,
+    _start_type: Option<&'static str>, // "text" or "thinking"
+    stopped: bool,
+}
+
+impl AnthropicSseWrapper {
+    pub fn new() -> Self {
+        Self {
+            sent_message_start: false,
+            sent_content_start: false,
+            _start_type: None,
+            stopped: false,
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stopped
+    }
+
+    /// 转换单个事件，返回 SSE 字符串列表（可能包含多个事件）
+    pub fn convert(&mut self, event: &CanonicalStreamEvent) -> Result<Vec<String>> {
+        match event {
+            CanonicalStreamEvent::TextDelta { text } => {
+                let mut outputs = Vec::new();
+                self.emit_headers("text", 0, &mut outputs)?;
+                outputs.push(format!(
+                    "event: content_block_delta\ndata: {}\n\n",
+                    serde_json::to_string(&serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": { "type": "text_delta", "text": text }
+                    }))
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ));
+                Ok(outputs)
+            }
+            CanonicalStreamEvent::ReasoningDelta { text } => {
+                let mut outputs = Vec::new();
+                self.emit_headers("thinking", 0, &mut outputs)?;
+                outputs.push(format!(
+                    "event: content_block_delta\ndata: {}\n\n",
+                    serde_json::to_string(&serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": { "type": "thinking_delta", "thinking": text }
+                    }))
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ));
+                Ok(outputs)
+            }
+            CanonicalStreamEvent::ToolUseStart {
+                id,
+                index,
+                name,
+                input,
+            } => {
+                let mut outputs = Vec::new();
+                self.emit_message_start_if_needed(&mut outputs)?;
+                outputs.push(format!(
+                    "event: content_block_start\ndata: {}\n\n",
+                    serde_json::to_string(&serde_json::json!({
+                        "type": "content_block_start",
+                        "index": index.unwrap_or(0),
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": id,
+                            "name": name,
+                            "input": input
+                        }
+                    }))
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ));
+                Ok(outputs)
+            }
+            CanonicalStreamEvent::ToolInputDelta {
+                index, input_chunk, ..
+            } => Ok(vec![format!(
+                "event: content_block_delta\ndata: {}\n\n",
+                serde_json::to_string(&serde_json::json!({
+                    "type": "content_block_delta",
+                    "index": index.unwrap_or(0),
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": input_chunk
+                    }
+                }))
+                .map_err(|e| anyhow::anyhow!(e))?
+            )]),
+            CanonicalStreamEvent::Stop { reason } => {
+                self.stopped = true;
+                let stop_reason = match reason {
+                    CanonicalStopReason::EndTurn => "end_turn",
+                    CanonicalStopReason::StopSequence => "stop_sequence",
+                    CanonicalStopReason::MaxTokens => "max_tokens",
+                    CanonicalStopReason::ToolUse => "tool_use",
+                };
+                Ok(vec![
+                    // content_block_stop 必须在 message_delta 之前
+                    format!(
+                        "event: content_block_stop\ndata: {}\n\n",
+                        serde_json::to_string(&serde_json::json!({
+                            "type": "content_block_stop",
+                            "index": 0
+                        }))
+                        .map_err(|e| anyhow::anyhow!(e))?
+                    ),
+                    // message_delta
+                    format!(
+                        "event: message_delta\ndata: {}\n\n",
+                        serde_json::to_string(&serde_json::json!({
+                            "type": "message_delta",
+                            "delta": {
+                                "stop_reason": stop_reason,
+                                "stop_sequence": null
+                            },
+                            "usage": {
+                                "output_tokens": 0
+                            }
+                        }))
+                        .map_err(|e| anyhow::anyhow!(e))?
+                    ),
+                    // message_stop
+                    format!(
+                        "event: message_stop\ndata: {}\n\n",
+                        serde_json::to_string(&serde_json::json!({
+                            "type": "message_stop"
+                        }))
+                        .map_err(|e| anyhow::anyhow!(e))?
+                    ),
+                ])
+            }
+            CanonicalStreamEvent::Usage { .. } => Ok(Vec::new()),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn emit_headers(
+        &mut self,
+        block_type: &'static str,
+        index: u64,
+        outputs: &mut Vec<String>,
+    ) -> Result<()> {
+        self.emit_message_start_if_needed(outputs)?;
+        if !self.sent_content_start {
+            outputs.push(format!(
+                "event: content_block_start\ndata: {}\n\n",
+                serde_json::to_string(&serde_json::json!({
+                    "type": "content_block_start",
+                    "index": index,
+                    "content_block": {
+                        "type": block_type
+                    }
+                }))
+                .map_err(|e| anyhow::anyhow!(e))?
+            ));
+            self.sent_content_start = true;
+            self._start_type = Some(block_type);
+        }
+        Ok(())
+    }
+
+    fn emit_message_start_if_needed(&mut self, outputs: &mut Vec<String>) -> Result<()> {
+        if !self.sent_message_start {
+            outputs.push(format!(
+                "event: message_start\ndata: {}\n\n",
+                serde_json::to_string(&serde_json::json!({
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg_001",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [],
+                        "model": "",
+                        "stop_sequence": null,
+                        "usage": {
+                            "input_tokens": 0,
+                            "output_tokens": 0
+                        }
+                    }
+                }))
+                .map_err(|e| anyhow::anyhow!(e))?
+            ));
+            self.sent_message_start = true;
+        }
+        Ok(())
     }
 }
 

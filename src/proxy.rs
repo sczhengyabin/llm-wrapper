@@ -524,6 +524,64 @@ fn ensure_codex_responses_requirements(body: &mut serde_json::Value) {
         }
         // Codex OAuth token 要求 store=false
         map.insert("store".to_string(), serde_json::Value::Bool(false));
+        // Codex 要求 stream 必须为 true
+        map.insert("stream".to_string(), serde_json::Value::Bool(true));
+        // Codex 不支持 max_output_tokens（标准 Responses API 字段）
+        map.remove("max_output_tokens");
+        // Codex 的 input 内容块不支持 input_text，需替换为 output_text
+        if let Some(input) = map.get_mut("input") {
+            fix_codex_content_block_types(input);
+        }
+    }
+}
+
+/// Codex 对 content block 类型有特殊要求：
+/// - assistant 消息的 content block 必须是 output_text（不支持 input_text）
+/// - user 消息的 content block 必须是 input_text（不支持 output_text）
+/// 标准 Responses API 转换层产生的 user 消息用 input_text（正确），
+/// 但 assistant 消息也用 input_text（Codex 需要 output_text），所以需要修正。
+fn fix_codex_content_block_types(input: &mut serde_json::Value) {
+    // input 是一个数组，每个元素是一个 message 对象
+    if let serde_json::Value::Array(arr) = input {
+        for item in arr.iter_mut() {
+            if let serde_json::Value::Object(ref mut msg) = item {
+                // 先提取 role 和 type 为独立字符串，避免借用冲突
+                let msg_type = msg.get("type").and_then(|t| t.as_str()).map(|s| s.to_string());
+                let role = msg.get("role").and_then(|r| r.as_str()).map(|s| s.to_string());
+
+                if msg_type.as_deref() == Some("message") || role.is_some() {
+                    if let Some(content) = msg.get_mut("content") {
+                        fix_codex_content_blocks_inner(content, role.as_deref());
+                    }
+                }
+                // 递归处理 msg 中其他嵌套值
+                for (_, v) in msg.iter_mut() {
+                    fix_codex_content_block_types(v);
+                }
+            }
+        }
+    }
+}
+
+/// 根据 role 修正 content blocks 的类型
+fn fix_codex_content_blocks_inner(content: &mut serde_json::Value, role: Option<&str>) {
+    if let serde_json::Value::Array(blocks) = content {
+        for block in blocks.iter_mut() {
+            if let serde_json::Value::Object(ref mut bmap) = block {
+                let typ = bmap.get("type").and_then(|t| t.as_str());
+                match (typ, role) {
+                    // assistant 消息：input_text → output_text
+                    (Some("input_text"), Some("assistant")) => {
+                        bmap.insert("type".to_string(), serde_json::json!("output_text"));
+                    }
+                    // user 消息：output_text → input_text
+                    (Some("output_text"), Some("user")) => {
+                        bmap.insert("type".to_string(), serde_json::json!("input_text"));
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 }
 
@@ -539,6 +597,7 @@ mod tests {
         ensure_codex_responses_requirements(&mut body);
         assert_eq!(body["instructions"], serde_json::json!(""));
         assert_eq!(body["store"], serde_json::json!(false));
+        assert_eq!(body["stream"], serde_json::json!(true));
     }
 
     #[test]
@@ -546,10 +605,41 @@ mod tests {
         let mut body = serde_json::json!({
             "model": "gpt-5.5",
             "instructions": "You are helpful",
-            "store": true
+            "store": true,
+            "max_output_tokens": 4096
         });
         ensure_codex_responses_requirements(&mut body);
         assert_eq!(body["instructions"], serde_json::json!("You are helpful"));
         assert_eq!(body["store"], serde_json::json!(false));
+        assert_eq!(body["stream"], serde_json::json!(true));
+        assert!(!body.as_object().unwrap().contains_key("max_output_tokens"));
+    }
+
+    #[test]
+    fn test_ensure_codex_responses_replaces_input_text_type() {
+        let mut body = serde_json::json!({
+            "model": "gpt-5.5",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "hello"}
+                    ]
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "input_text", "text": "hi back"}
+                    ]
+                }
+            ]
+        });
+        ensure_codex_responses_requirements(&mut body);
+        // user 消息保持 input_text
+        assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+        // assistant 消息：input_text → output_text
+        assert_eq!(body["input"][1]["content"][0]["type"], "output_text");
     }
 }

@@ -330,10 +330,18 @@ async fn handle_protocol_request(
     }
 
     // 检查是否是流式请求
-    let is_stream = upstream_body
+    let mut is_stream = upstream_body
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+
+    // Codex 强制流式响应，即使客户端请求非流式
+    if needs_conversion
+        && route.api_type == llm_wrapper::models::ApiType::ChatGptCodex
+    {
+        is_stream = true;
+        upstream_body["stream"] = serde_json::json!(true);
+    }
 
     // 提取客户端信息
     let client_ip = req
@@ -584,6 +592,8 @@ async fn handle_streaming_conversion(
 
             HttpResponse::Ok()
                 .content_type("text/event-stream")
+                .insert_header(("Connection", "close"))
+                .insert_header(("Cache-Control", "no-cache"))
                 .body(actix_web::body::BodyStream::new(broadcast_stream))
         }
         Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
