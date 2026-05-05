@@ -329,17 +329,16 @@ async fn handle_protocol_request(
             };
     }
 
-    // 检查是否是流式请求
-    let mut is_stream = upstream_body
+    // 客户端是否请求流式（在 Codex 强制 stream=true 之前读取）
+    let client_wants_stream = upstream_body
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    // Codex 强制流式响应，即使客户端请求非流式
-    if needs_conversion
-        && route.api_type == llm_wrapper::models::ApiType::ChatGptCodex
-    {
-        is_stream = true;
+    // Codex 上游强制 stream=true；客户端 stream=false 时在本地聚合为 JSON
+    let codex_forced_stream =
+        needs_conversion && route.api_type == llm_wrapper::models::ApiType::ChatGptCodex;
+    if codex_forced_stream {
         upstream_body["stream"] = serde_json::json!(true);
     }
 
@@ -355,7 +354,7 @@ async fn handle_protocol_request(
         req.uri().path()
     );
 
-    if needs_conversion && is_stream {
+    if needs_conversion && client_wants_stream {
         // 流式协议转换（带调试）
         return handle_streaming_conversion(
             &proxy,
@@ -373,80 +372,43 @@ async fn handle_protocol_request(
         .await;
     } else if needs_conversion {
         // 非流式协议转换（带调试）
-        match proxy
-            .proxy_request_raw(&route, "POST".to_string(), target_protocol, upstream_body.clone())
+        let upstream_result = if codex_forced_stream {
+            proxy_and_drain_responses_stream(
+                &proxy,
+                &route,
+                &upstream_body,
+                target_protocol,
+                endpoint_path,
+            )
             .await
-        {
+        } else {
+            proxy
+                .proxy_request_raw(
+                    &route,
+                    "POST".to_string(),
+                    target_protocol,
+                    upstream_body.clone(),
+                )
+                .await
+        };
+
+        match upstream_result {
             Ok((upstream_url, status, _headers, body_bytes)) => {
-                // 保存调试信息
-                let debug_info = DebugInfo {
-                    client_request: body.clone(),
+                finalize_non_stream_converted_response(
+                    state.get_ref(),
+                    debug_mode,
+                    body.clone(),
                     client_ip,
                     client_url,
-                    endpoint: endpoint_path.to_string(),
+                    endpoint_path,
                     upstream_url,
-                    upstream_request: upstream_body.clone(),
-                    upstream_response: serde_json::from_slice::<serde_json::Value>(&body_bytes)
-                        .unwrap_or(serde_json::Value::Null),
-                };
-                state.debug_data.data.write().await.replace(debug_info);
-
-                // 非 2xx 错误响应直接转发，不做协议转换
-                if status >= 400 {
-                    let status_code = actix_web::http::StatusCode::from_u16(status)
-                        .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY);
-
-                    // 尝试解析为 JSON 返回，否则返回原始文本
-                    if let Ok(err_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
-                        return HttpResponse::build(status_code).json(err_json);
-                    }
-
-                    return HttpResponse::build(status_code)
-                        .content_type("text/plain")
-                        .body(body_bytes);
-                }
-
-                let response_json = match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
-                    Ok(j) => j,
-                    Err(e) => {
-                        return HttpResponse::BadGateway().json(json!({
-                            "error": {"message": format!("解析上游响应失败：{}", e)}
-                        }))
-                    }
-                };
-
-                let converted = match llm_wrapper::transform::convert_response(
+                    upstream_body.clone(),
                     target_protocol,
                     entry_protocol,
-                    &response_json,
-                ) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        return HttpResponse::BadGateway().json(json!({
-                            "error": {"message": format!("响应转换失败：{}", e)}
-                        }))
-                    }
-                };
-
-                // 调试模式下返回调试信息而非业务响应
-                if debug_mode {
-                    let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-                        client_request: serde_json::Value::Null,
-                        client_ip: String::new(),
-                        client_url: String::new(),
-                        endpoint: String::new(),
-                        upstream_url: String::new(),
-                        upstream_request: serde_json::Value::Null,
-                        upstream_response: serde_json::Value::Null,
-                    });
-                    return HttpResponse::Ok().json(json!({
-                        "debug": debug_info
-                    }));
-                }
-
-                let status_code = actix_web::http::StatusCode::from_u16(status)
-                    .unwrap_or(actix_web::http::StatusCode::OK);
-                HttpResponse::build(status_code).json(converted)
+                    status,
+                    body_bytes,
+                )
+                .await
             }
             Err(e) => {
                 if e.contains("404") || e.contains("405") {
@@ -486,15 +448,16 @@ async fn handle_protocol_request(
                         .map(|v| v.contains("text/event-stream"))
                         .unwrap_or(false);
                     if !is_stream {
-                        let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-                            client_request: serde_json::Value::Null,
-                            client_ip: String::new(),
-                            client_url: String::new(),
-                            endpoint: String::new(),
-                            upstream_url: String::new(),
-                            upstream_request: serde_json::Value::Null,
-                            upstream_response: serde_json::Value::Null,
-                        });
+                        let debug_info =
+                            state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
+                                client_request: serde_json::Value::Null,
+                                client_ip: String::new(),
+                                client_url: String::new(),
+                                endpoint: String::new(),
+                                upstream_url: String::new(),
+                                upstream_request: serde_json::Value::Null,
+                                upstream_response: serde_json::Value::Null,
+                            });
                         return HttpResponse::Ok().json(json!({
                             "debug": debug_info
                         }));
@@ -598,6 +561,130 @@ async fn handle_streaming_conversion(
         }
         Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
     }
+}
+
+/// 非流式转换结果收尾：保存调试信息 + 错误透传 + 响应协议转换
+async fn finalize_non_stream_converted_response(
+    state: &AppState,
+    debug_mode: bool,
+    client_request: serde_json::Value,
+    client_ip: String,
+    client_url: String,
+    endpoint_path: &str,
+    upstream_url: String,
+    upstream_request: serde_json::Value,
+    target_protocol: Protocol,
+    entry_protocol: Protocol,
+    status: u16,
+    body_bytes: Vec<u8>,
+) -> HttpResponse {
+    let upstream_response =
+        serde_json::from_slice::<serde_json::Value>(&body_bytes).unwrap_or(serde_json::Value::Null);
+
+    let debug_info = DebugInfo {
+        client_request,
+        client_ip,
+        client_url,
+        endpoint: endpoint_path.to_string(),
+        upstream_url,
+        upstream_request,
+        upstream_response,
+    };
+    state.debug_data.data.write().await.replace(debug_info);
+
+    // 非 2xx 错误响应直接透传，不做协议转换
+    if status >= 400 {
+        let status_code = actix_web::http::StatusCode::from_u16(status)
+            .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY);
+        if let Ok(err_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+            return HttpResponse::build(status_code).json(err_json);
+        }
+        return HttpResponse::build(status_code)
+            .content_type("text/plain")
+            .body(body_bytes);
+    }
+
+    let response_json = match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+        Ok(j) => j,
+        Err(e) => {
+            return HttpResponse::BadGateway().json(json!({
+                "error": {"message": format!("解析上游响应失败：{}", e)}
+            }))
+        }
+    };
+
+    let converted = match llm_wrapper::transform::convert_response(
+        target_protocol,
+        entry_protocol,
+        &response_json,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            return HttpResponse::BadGateway().json(json!({
+                "error": {"message": format!("响应转换失败：{}", e)}
+            }))
+        }
+    };
+
+    if debug_mode {
+        let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
+            client_request: serde_json::Value::Null,
+            client_ip: String::new(),
+            client_url: String::new(),
+            endpoint: String::new(),
+            upstream_url: String::new(),
+            upstream_request: serde_json::Value::Null,
+            upstream_response: serde_json::Value::Null,
+        });
+        return HttpResponse::Ok().json(json!({
+            "debug": debug_info
+        }));
+    }
+
+    let status_code =
+        actix_web::http::StatusCode::from_u16(status).unwrap_or(actix_web::http::StatusCode::OK);
+    HttpResponse::build(status_code).json(converted)
+}
+
+/// 发送请求到 Responses 上游并在本地 drain SSE，聚合为单条 Responses JSON
+async fn proxy_and_drain_responses_stream(
+    proxy: &llm_wrapper::proxy::Proxy,
+    route: &llm_wrapper::router::RouteResult,
+    upstream_body: &serde_json::Value,
+    target_protocol: Protocol,
+    endpoint_path: &str,
+) -> Result<(String, u16, reqwest::header::HeaderMap, Vec<u8>), String> {
+    let (upstream_url, status, headers, response) = proxy
+        .proxy_request_stream_raw(
+            route,
+            "POST".to_string(),
+            target_protocol,
+            upstream_body.clone(),
+        )
+        .await?;
+
+    if status == 404 || status == 405 {
+        return Err(format!("上游返回 {} - {}", status, endpoint_path));
+    }
+
+    if status >= 400 {
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("读取上游错误响应失败：{}", e))?;
+        return Ok((upstream_url, status, headers, body_bytes.to_vec()));
+    }
+
+    let aggregated = llm_wrapper::transform::drain_responses_sse_to_json(
+        response,
+        upstream_body.get("model").and_then(|v| v.as_str()),
+    )
+    .await
+    .map_err(|e| format!("聚合上游流响应失败：{}", e))?;
+
+    let body_bytes =
+        serde_json::to_vec(&aggregated).map_err(|e| format!("序列化聚合响应失败：{}", e))?;
+    Ok((upstream_url, status, headers, body_bytes))
 }
 
 async fn get_debug_data(state: web::Data<AppState>) -> HttpResponse {

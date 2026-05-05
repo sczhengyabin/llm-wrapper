@@ -58,15 +58,7 @@ impl Proxy {
         let mut request_body = body.clone();
         // 应用参数覆盖
         apply_param_overrides_inner(&mut request_body, route);
-
-        // ChatCompletions 直连 Codex 时，先转换为 Responses 形状
-        if route.api_type == ApiType::ChatGptCodex && target_protocol == Protocol::ChatCompletions {
-            transform_chat_to_responses(&mut request_body);
-        }
-        // Codex Responses 的协议要求：必须携带 instructions，且 store=false
-        if route.api_type == ApiType::ChatGptCodex && target_protocol == Protocol::Responses {
-            ensure_codex_responses_requirements(&mut request_body);
-        }
+        normalize_codex_upstream_request(&route.api_type, target_protocol, &mut request_body);
 
         let request_body_bytes = serde_json::to_vec(&request_body).map_err(|e| e.to_string())?;
 
@@ -110,12 +102,7 @@ impl Proxy {
         // 构建并修改请求体
         let mut request_body = body.clone();
         apply_param_overrides_inner(&mut request_body, route);
-        if route.api_type == ApiType::ChatGptCodex && target_protocol == Protocol::ChatCompletions {
-            transform_chat_to_responses(&mut request_body);
-        }
-        if route.api_type == ApiType::ChatGptCodex && target_protocol == Protocol::Responses {
-            ensure_codex_responses_requirements(&mut request_body);
-        }
+        normalize_codex_upstream_request(&route.api_type, target_protocol, &mut request_body);
 
         // 流式标志
         let is_stream = request_body
@@ -438,6 +425,29 @@ fn transform_upstream_path(api_type: &ApiType, protocol: Protocol) -> String {
     }
 }
 
+/// 统一规整 Codex 上游请求体
+fn normalize_codex_upstream_request(
+    api_type: &ApiType,
+    target_protocol: Protocol,
+    body: &mut serde_json::Value,
+) {
+    if *api_type != ApiType::ChatGptCodex {
+        return;
+    }
+
+    // Codex 仅支持 Responses，上游路径固定为 /codex/responses。
+    // 这里保留 ChatCompletions -> Responses 的兜底转换，避免直接调用 Proxy 时发送错误形状。
+    if target_protocol == Protocol::ChatCompletions {
+        transform_chat_to_responses(body);
+        ensure_codex_responses_requirements(body);
+        return;
+    }
+
+    if target_protocol == Protocol::Responses {
+        ensure_codex_responses_requirements(body);
+    }
+}
+
 /// 将 chat completions 请求格式转换为 Responses API 格式
 fn transform_chat_to_responses(body: &mut serde_json::Value) {
     if let serde_json::Value::Object(ref mut map) = body {
@@ -450,8 +460,8 @@ fn transform_chat_to_responses(body: &mut serde_json::Value) {
                 for msg in msgs {
                     if let serde_json::Value::Object(ref m) = msg {
                         if let Some(role) = m.get("role") {
-                            if role == "system" {
-                                // system 消息的内容提取到 instructions
+                            if role == "system" || role == "developer" {
+                                // system/developer 消息的内容提取到 instructions
                                 if let Some(content) = m.get("content") {
                                     instructions_parts.push(content.clone());
                                 }
@@ -528,9 +538,80 @@ fn ensure_codex_responses_requirements(body: &mut serde_json::Value) {
         map.insert("stream".to_string(), serde_json::Value::Bool(true));
         // Codex 不支持 max_output_tokens（标准 Responses API 字段）
         map.remove("max_output_tokens");
+        // Codex 不支持 parallel_tool_calls
+        map.remove("parallel_tool_calls");
+        // 适配 Claude Code：当提供了 tools 但未指定 tool_choice 时，强制 required，
+        // 避免模型“计划使用工具”却直接以 end_turn 结束。
+        let has_tools = map
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .map(|arr| !arr.is_empty())
+            .unwrap_or(false);
+        if has_tools && !map.contains_key("tool_choice") {
+            map.insert(
+                "tool_choice".to_string(),
+                serde_json::Value::String("required".to_string()),
+            );
+        }
         // Codex 的 input 内容块不支持 input_text，需替换为 output_text
         if let Some(input) = map.get_mut("input") {
+            sanitize_codex_function_call_fields(input);
             fix_codex_content_block_types(input);
+        }
+    }
+}
+
+/// 清洗 Codex function_call / function_call_output 字段
+fn sanitize_codex_function_call_fields(input: &mut serde_json::Value) {
+    let Some(items) = input.as_array_mut() else {
+        return;
+    };
+
+    let mut remap: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut counter: u64 = 0;
+
+    for item in items.iter_mut() {
+        let Some(obj) = item.as_object_mut() else {
+            continue;
+        };
+        let item_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+
+        if item_type == "function_call" {
+            // 避免触发 Codex 对 id=fc_* 的严格校验
+            obj.remove("id");
+
+            let old_call_id = obj
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+
+            let normalized = if old_call_id.starts_with("call_") && !old_call_id.is_empty() {
+                old_call_id.clone()
+            } else {
+                let next = format!("call_{}", counter);
+                counter += 1;
+                next
+            };
+
+            if !old_call_id.is_empty() && old_call_id != normalized {
+                remap.insert(old_call_id.clone(), normalized.clone());
+            }
+
+            obj.insert("call_id".to_string(), serde_json::json!(normalized));
+            continue;
+        }
+
+        if item_type == "function_call_output" {
+            if let Some(old) = obj
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+            {
+                if let Some(new_id) = remap.get(&old) {
+                    obj.insert("call_id".to_string(), serde_json::json!(new_id));
+                }
+            }
         }
     }
 }
@@ -546,8 +627,14 @@ fn fix_codex_content_block_types(input: &mut serde_json::Value) {
         for item in arr.iter_mut() {
             if let serde_json::Value::Object(ref mut msg) = item {
                 // 先提取 role 和 type 为独立字符串，避免借用冲突
-                let msg_type = msg.get("type").and_then(|t| t.as_str()).map(|s| s.to_string());
-                let role = msg.get("role").and_then(|r| r.as_str()).map(|s| s.to_string());
+                let msg_type = msg
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string());
+                let role = msg
+                    .get("role")
+                    .and_then(|r| r.as_str())
+                    .map(|s| s.to_string());
 
                 if msg_type.as_deref() == Some("message") || role.is_some() {
                     if let Some(content) = msg.get_mut("content") {
@@ -606,13 +693,18 @@ mod tests {
             "model": "gpt-5.5",
             "instructions": "You are helpful",
             "store": true,
-            "max_output_tokens": 4096
+            "max_output_tokens": 4096,
+            "parallel_tool_calls": false
         });
         ensure_codex_responses_requirements(&mut body);
         assert_eq!(body["instructions"], serde_json::json!("You are helpful"));
         assert_eq!(body["store"], serde_json::json!(false));
         assert_eq!(body["stream"], serde_json::json!(true));
         assert!(!body.as_object().unwrap().contains_key("max_output_tokens"));
+        assert!(!body
+            .as_object()
+            .unwrap()
+            .contains_key("parallel_tool_calls"));
     }
 
     #[test]
@@ -641,5 +733,105 @@ mod tests {
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
         // assistant 消息：input_text → output_text
         assert_eq!(body["input"][1]["content"][0]["type"], "output_text");
+    }
+
+    #[test]
+    fn test_transform_chat_to_responses_lifts_developer_messages() {
+        let mut body = serde_json::json!({
+            "model": "gpt-5.5",
+            "messages": [
+                {"role": "system", "content": "Be terse."},
+                {"role": "developer", "content": "Tone: concise."},
+                {"role": "user", "content": "Hi"}
+            ]
+        });
+        transform_chat_to_responses(&mut body);
+        assert_eq!(
+            body["instructions"],
+            serde_json::json!("Be terse.\n\nTone: concise.")
+        );
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
+        assert_eq!(input[0]["content"], "Hi");
+    }
+
+    #[test]
+    fn test_ensure_codex_responses_sanitizes_function_call_fields() {
+        let mut body = serde_json::json!({
+            "model": "gpt-5.5",
+            "input": [
+                {
+                    "type": "function_call",
+                    "id": "call_bad_prefix",
+                    "call_id": "toolu_abc",
+                    "name": "search",
+                    "arguments": "{\"q\":\"x\"}"
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "toolu_abc",
+                    "output": "ok"
+                }
+            ]
+        });
+        ensure_codex_responses_requirements(&mut body);
+
+        let input = body["input"].as_array().unwrap();
+        let fc = input[0].as_object().unwrap();
+        assert_eq!(fc.get("id"), None);
+        let new_call_id = fc.get("call_id").and_then(|v| v.as_str()).unwrap();
+        assert!(new_call_id.starts_with("call_"));
+        assert_eq!(
+            input[1].get("call_id").and_then(|v| v.as_str()),
+            Some(new_call_id)
+        );
+    }
+
+    #[test]
+    fn test_ensure_codex_responses_defaults_tool_choice_required_when_tools_present() {
+        let mut body = serde_json::json!({
+            "model": "gpt-5.5",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "echo_tool",
+                    "parameters": {"type":"object"}
+                }
+            ],
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type":"input_text","text":"hi"}]
+                }
+            ]
+        });
+        ensure_codex_responses_requirements(&mut body);
+        assert_eq!(body["tool_choice"], "required");
+    }
+
+    #[test]
+    fn test_ensure_codex_responses_keeps_explicit_tool_choice() {
+        let mut body = serde_json::json!({
+            "model": "gpt-5.5",
+            "tool_choice": "auto",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "echo_tool",
+                    "parameters": {"type":"object"}
+                }
+            ],
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type":"input_text","text":"hi"}]
+                }
+            ]
+        });
+        ensure_codex_responses_requirements(&mut body);
+        assert_eq!(body["tool_choice"], "auto");
     }
 }

@@ -262,6 +262,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         .and_then(|v: Vec<String>| if v.is_empty() { None } else { Some(v) });
 
     let tools = body.get("tools").and_then(parse_tools);
+    let tool_choice = body.get("tool_choice").cloned();
 
     Ok(CanonicalRequest {
         model: model.to_string(),
@@ -273,6 +274,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         stop_sequences,
         stream,
         tools,
+        tool_choice,
         unmapped: vec![],
     })
 }
@@ -438,6 +440,9 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
             .collect();
         body["tools"] = json!(anthropic_tools);
     }
+    if let Some(tool_choice) = &canonical.tool_choice {
+        body["tool_choice"] = tool_choice.clone();
+    }
 
     Ok(body)
 }
@@ -600,6 +605,7 @@ mod tests {
             stop_sequences: None,
             stream: false,
             tools: None,
+            tool_choice: None,
             unmapped: vec![],
         };
 

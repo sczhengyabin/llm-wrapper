@@ -1851,6 +1851,66 @@ fn streaming_all_9_conversion_paths_parsing() {
 }
 
 // ============================================================
+// 对齐 auth2api：关键非流式响应映射语义
+// ============================================================
+
+#[test]
+fn align_auth2api_chat_developer_messages_lifted_to_instructions() {
+    let body = json!({
+        "model": "gpt-5.5",
+        "messages": [
+            {"role": "system", "content": "Be terse."},
+            {"role": "developer", "content": "Tone: concise."},
+            {"role": "user", "content": "hi"}
+        ]
+    });
+
+    let converted =
+        convert_request(Protocol::ChatCompletions, Protocol::Responses, &body).expect("转换失败");
+    assert_eq!(
+        converted.get("instructions").and_then(|v| v.as_str()),
+        Some("Be terse.\n\nTone: concise.")
+    );
+    let input = converted.get("input").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(input.len(), 1);
+    assert_eq!(input[0].get("role").and_then(|v| v.as_str()), Some("user"));
+    assert_eq!(input[0].get("content").and_then(|v| v.as_str()), Some("hi"));
+}
+
+#[test]
+fn align_auth2api_responses_incomplete_status_mappings() {
+    let upstream_response = json!({
+        "id": "resp_incomplete",
+        "model": "gpt-5.5",
+        "status": "incomplete",
+        "output": [{
+            "type": "message",
+            "content": [{"type":"output_text","text":"trun"}]
+        }],
+        "usage": {"input_tokens": 10, "output_tokens": 2}
+    });
+
+    let to_chat = convert_response(
+        Protocol::Responses,
+        Protocol::ChatCompletions,
+        &upstream_response,
+    )
+    .expect("responses->chat 转换失败");
+    assert_eq!(
+        to_chat["choices"][0]["finish_reason"].as_str(),
+        Some("length")
+    );
+
+    let to_anthropic = convert_response(
+        Protocol::Responses,
+        Protocol::AnthropicMessages,
+        &upstream_response,
+    )
+    .expect("responses->anthropic 转换失败");
+    assert_eq!(to_anthropic["stop_reason"].as_str(), Some("max_tokens"));
+}
+
+// ============================================================
 // SSE 字节流分块解析测试
 // ============================================================
 

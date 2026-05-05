@@ -5,6 +5,43 @@ use super::canonical::*;
 use anyhow::Result;
 use serde_json::json;
 
+fn normalize_tool_choice_for_responses(
+    tool_choice: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    match tool_choice {
+        serde_json::Value::String(s) => match s.as_str() {
+            "auto" => Some(json!("auto")),
+            "none" => Some(json!("none")),
+            "required" => Some(json!("required")),
+            _ => None,
+        },
+        serde_json::Value::Object(obj) => {
+            let tc_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+            match tc_type {
+                "auto" => Some(json!("auto")),
+                "none" => Some(json!("none")),
+                "any" => Some(json!("required")),
+                "tool" => obj
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|name| json!({"type":"function","name":name})),
+                "function" => {
+                    if obj.get("name").and_then(|v| v.as_str()).is_some() {
+                        Some(tool_choice.clone())
+                    } else {
+                        obj.get("function")
+                            .and_then(|f| f.get("name"))
+                            .and_then(|v| v.as_str())
+                            .map(|name| json!({"type":"function","name":name}))
+                    }
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// 解析 Responses API 的 input content block 为 CanonicalContentBlock
 #[allow(unused_variables)]
 fn parse_responses_content_block(block: &serde_json::Value) -> Option<CanonicalContentBlock> {
@@ -23,7 +60,7 @@ fn parse_responses_content_block(block: &serde_json::Value) -> Option<CanonicalC
                 Some(CanonicalContentBlock::Text { text })
             }
         }
-        "reasoning_text" => {
+        "reasoning_text" | "summary_text" => {
             let text = block
                 .get("text")
                 .and_then(|t| t.as_str())
@@ -247,6 +284,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
             .get("stream")
             .and_then(|s| s.as_bool())
             .unwrap_or(false),
+        tool_choice: body.get("tool_choice").cloned(),
         tools: if tools.as_ref().map_or(true, |t| t.is_empty()) {
             None
         } else {
@@ -306,7 +344,6 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
                     CanonicalContentBlock::ToolUse { id, name, input } => {
                         input_items.push(json!({
                             "type": "function_call",
-                            "id": id,
                             "call_id": id,
                             "name": name,
                             "arguments": serde_json::to_string(input).unwrap_or_default()
@@ -343,6 +380,11 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
                             })
                             .collect::<Vec<_>>()
                             .join("\n\n");
+                        let output = if output.trim() == "[Tool result missing due to internal error]" {
+                            "Error: Tool runtime internal error (result missing). Please retry the same tool call with identical parameters.".to_string()
+                        } else {
+                            output
+                        };
 
                         input_items.push(json!({
                             "type": "function_call_output",
@@ -442,6 +484,9 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
                     "type": "function",
                     "name": tool.name,
                     "description": tool.description,
+                    // Anthropic tools often include optional fields; keep non-strict behavior
+                    // so Codex can emit partial argument objects that still pass client validation.
+                    "strict": false,
                     "parameters": tool.input_schema
                 })
             })
@@ -500,6 +545,13 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
         if let Some(t) = tools {
             obj.insert("tools".to_string(), json!(t));
         }
+        if let Some(tc) = canonical
+            .tool_choice
+            .as_ref()
+            .and_then(normalize_tool_choice_for_responses)
+        {
+            obj.insert("tool_choice".to_string(), tc);
+        }
     }
 
     Ok(result)
@@ -519,6 +571,7 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
 
     // Parse output items into content blocks
     let mut content: Vec<CanonicalContentBlock> = vec![];
+    let mut has_function_call_output = false;
 
     if let Some(output) = body.get("output").and_then(|o| o.as_array()) {
         for item in output {
@@ -535,10 +588,11 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
                     }
                 }
                 "function_call" => {
+                    has_function_call_output = true;
                     let id = item
-                        .get("id")
+                        .get("call_id")
                         .and_then(|i| i.as_str())
-                        .or_else(|| item.get("call_id").and_then(|i| i.as_str()))
+                        .or_else(|| item.get("id").and_then(|i| i.as_str()))
                         .unwrap_or("");
                     let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
                     let arguments_str = item
@@ -549,7 +603,7 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
                     let call_id = if !id.is_empty() {
                         id.to_string()
                     } else {
-                        item.get("call_id")
+                        item.get("id")
                             .and_then(|c| c.as_str())
                             .unwrap_or("")
                             .to_string()
@@ -599,11 +653,15 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
         .and_then(|s| s.as_str())
         .unwrap_or("");
 
-    let stop_reason = if status == "in_progress" || status == "incomplete" {
+    let stop_reason = if status == "in_progress" {
         None
+    } else if status == "incomplete" {
+        Some(CanonicalStopReason::MaxTokens)
     } else {
         match stop_reason_str {
-            "end_turn" | "" => Some(CanonicalStopReason::EndTurn),
+            "end_turn" => Some(CanonicalStopReason::EndTurn),
+            "" if has_function_call_output => Some(CanonicalStopReason::ToolUse),
+            "" => Some(CanonicalStopReason::EndTurn),
             "max_output_tokens" | "max_tokens" => Some(CanonicalStopReason::MaxTokens),
             "stop_sequence" => Some(CanonicalStopReason::StopSequence),
             "tool_calls" | "function_call" => Some(CanonicalStopReason::ToolUse),
@@ -875,6 +933,43 @@ mod tests {
     }
 
     #[test]
+    fn test_from_canonical_request_rewrites_missing_tool_result_placeholder() {
+        let canonical = CanonicalRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![CanonicalMessage {
+                role: CanonicalRole::User,
+                content: vec![CanonicalContentBlock::ToolResult {
+                    tool_use_id: "call_abc".to_string(),
+                    content: vec![CanonicalContentBlock::Text {
+                        text: "[Tool result missing due to internal error]".to_string(),
+                    }],
+                }],
+            }],
+            system: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            unmapped: vec![],
+        };
+
+        let result = from_canonical_request(&canonical).unwrap();
+        let input = result["input"].as_array().unwrap();
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["type"], "function_call_output");
+        assert_eq!(input[0]["call_id"], "call_abc");
+        assert!(
+            input[0]["output"]
+                .as_str()
+                .unwrap()
+                .contains("Please retry the same tool call")
+        );
+    }
+
+    #[test]
     fn test_from_canonical_request_basic() {
         let canonical = CanonicalRequest {
             model: "gpt-4".to_string(),
@@ -893,6 +988,7 @@ mod tests {
             stop_sequences: None,
             stream: false,
             tools: None,
+            tool_choice: None,
             unmapped: vec![],
         };
 
@@ -930,6 +1026,7 @@ mod tests {
             stop_sequences: None,
             stream: false,
             tools: None,
+            tool_choice: None,
             unmapped: vec![],
         };
 
@@ -939,6 +1036,8 @@ mod tests {
         // Last item should be a function_call
         let last = input.last().unwrap();
         assert_eq!(last["type"], "function_call");
+        assert_eq!(last["call_id"], "call_abc");
+        assert!(last.get("id").is_none());
         assert_eq!(last["name"], "get_weather");
     }
 
@@ -1051,6 +1150,34 @@ mod tests {
     }
 
     #[test]
+    fn test_to_canonical_response_with_function_call_prefers_call_id() {
+        let body = json!({
+            "id": "resp_456",
+            "model": "gpt-4",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "fc_internal_1",
+                    "call_id": "call_public_1",
+                    "name": "search",
+                    "arguments": "{\"query\":\"test\"}"
+                }
+            ],
+            "status": "completed",
+            "stop_reason": "tool_calls"
+        });
+        let resp = to_canonical_response(&body).unwrap();
+        assert_eq!(resp.content.len(), 1);
+        if let CanonicalContentBlock::ToolUse { id, name, input } = &resp.content[0] {
+            assert_eq!(id, "call_public_1");
+            assert_eq!(name, "search");
+            assert_eq!(input["query"], "test");
+        } else {
+            panic!("expected tool use block");
+        }
+    }
+
+    #[test]
     fn test_from_canonical_response_with_text() {
         let canonical = CanonicalResponse {
             id: "resp_789".to_string(),
@@ -1124,6 +1251,7 @@ mod tests {
                 description: Some("Calculate".to_string()),
                 input_schema: json!({"type": "object"}),
             }]),
+            tool_choice: None,
             unmapped: vec![],
         };
 
@@ -1133,6 +1261,60 @@ mod tests {
         assert_eq!(tools[0]["type"], "function");
         assert_eq!(tools[0]["name"], "calc");
         assert_eq!(tools[0]["description"], "Calculate");
+        assert_eq!(tools[0]["strict"], false);
+    }
+
+    #[test]
+    fn test_from_canonical_tool_choice_any_maps_to_required() {
+        let canonical = CanonicalRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![CanonicalMessage {
+                role: CanonicalRole::User,
+                content: vec![CanonicalContentBlock::Text {
+                    text: "Use a tool".to_string(),
+                }],
+            }],
+            system: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            tools: None,
+            tool_choice: Some(json!({"type":"any"})),
+            unmapped: vec![],
+        };
+
+        let result = from_canonical_request(&canonical).unwrap();
+        assert_eq!(result["tool_choice"], "required");
+    }
+
+    #[test]
+    fn test_from_canonical_tool_choice_tool_maps_to_function() {
+        let canonical = CanonicalRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![CanonicalMessage {
+                role: CanonicalRole::User,
+                content: vec![CanonicalContentBlock::Text {
+                    text: "Use weather tool".to_string(),
+                }],
+            }],
+            system: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            tools: None,
+            tool_choice: Some(json!({"type":"tool","name":"get_weather"})),
+            unmapped: vec![],
+        };
+
+        let result = from_canonical_request(&canonical).unwrap();
+        assert_eq!(
+            result["tool_choice"],
+            json!({"type":"function","name":"get_weather"})
+        );
     }
 
     #[test]
@@ -1152,6 +1334,62 @@ mod tests {
         });
         let resp = to_canonical_response(&body).unwrap();
         assert_eq!(resp.stop_reason, None);
+
+        // Incomplete
+        let body = json!({
+            "id": "r3", "model": "gpt-4", "output": [],
+            "status": "incomplete"
+        });
+        let resp = to_canonical_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, Some(CanonicalStopReason::MaxTokens));
+    }
+
+    #[test]
+    fn test_stop_reason_infers_tool_use_from_function_call_output() {
+        let body = json!({
+            "id": "r_tool",
+            "model": "gpt-4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "echo_tool",
+                    "arguments": "{\"text\":\"hi\"}"
+                }
+            ]
+        });
+        let resp = to_canonical_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, Some(CanonicalStopReason::ToolUse));
+    }
+
+    #[test]
+    fn test_reasoning_summary_text_parsing() {
+        let body = json!({
+            "id": "resp_reasoning",
+            "model": "gpt-5.5",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "summary": [
+                        {"type": "summary_text", "text": "first"},
+                        {"type": "reasoning_text", "text": " second"}
+                    ]
+                }
+            ]
+        });
+
+        let resp = to_canonical_response(&body).unwrap();
+        assert_eq!(resp.content.len(), 2);
+        assert!(matches!(
+            &resp.content[0],
+            CanonicalContentBlock::Reasoning { text } if text == "first"
+        ));
+        assert!(matches!(
+            &resp.content[1],
+            CanonicalContentBlock::Reasoning { text } if text == " second"
+        ));
     }
 
     #[test]

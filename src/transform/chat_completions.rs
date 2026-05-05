@@ -122,6 +122,7 @@ fn parse_message(msg: &serde_json::Value) -> Option<CanonicalMessage> {
 
     let role = match role_str {
         "system" => CanonicalRole::System,
+        "developer" => CanonicalRole::System,
         "user" => CanonicalRole::User,
         "assistant" => CanonicalRole::Assistant,
         _ => return None,
@@ -238,7 +239,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
 
     for msg in messages_vals {
         let role_str = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
-        if role_str == "system" {
+        if role_str == "system" || role_str == "developer" {
             // Extract content as system blocks
             if let Some(content) = msg.get("content") {
                 system_blocks.extend(parse_content_blocks(content));
@@ -269,6 +270,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         .and_then(|s| s.as_bool())
         .unwrap_or(false);
     let tools = body.get("tools").and_then(parse_tools);
+    let tool_choice = body.get("tool_choice").cloned();
 
     Ok(CanonicalRequest {
         model: model.to_string(),
@@ -280,6 +282,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         stop_sequences,
         stream,
         tools,
+        tool_choice,
         unmapped: vec![],
     })
 }
@@ -532,6 +535,9 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
             .collect();
         body["tools"] = json!(openai_tools);
     }
+    if let Some(tool_choice) = &canonical.tool_choice {
+        body["tool_choice"] = tool_choice.clone();
+    }
 
     Ok(body)
 }
@@ -771,6 +777,26 @@ mod tests {
         });
         let canonical = to_canonical_request(&body).unwrap();
         assert!(canonical.system.is_some());
+        assert_eq!(canonical.messages.len(), 1);
+        assert_eq!(canonical.messages[0].role, CanonicalRole::User);
+    }
+
+    #[test]
+    fn test_developer_message_extraction() {
+        let body = json!({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "developer", "content": "Use concise style"},
+                {"role": "user", "content": "Hi"}
+            ]
+        });
+        let canonical = to_canonical_request(&body).unwrap();
+        assert!(canonical.system.is_some());
+        let sys = canonical.system.unwrap();
+        assert_eq!(sys.len(), 1);
+        assert!(
+            matches!(&sys[0], CanonicalContentBlock::Text { text } if text == "Use concise style")
+        );
         assert_eq!(canonical.messages.len(), 1);
         assert_eq!(canonical.messages[0].role, CanonicalRole::User);
     }

@@ -78,6 +78,8 @@ pub struct CanonicalRequest {
     pub stream: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<CanonicalTool>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<serde_json::Value>,
     /// 无法映射到目标协议的字段名列表
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unmapped: Vec<String>,
@@ -137,6 +139,7 @@ mod tests {
             stop_sequences: None,
             stream: false,
             tools: None,
+            tool_choice: None,
             unmapped: vec![],
         };
 

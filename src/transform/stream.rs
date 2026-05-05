@@ -2,6 +2,8 @@
 
 use anyhow::Result;
 use futures::Stream;
+use futures::StreamExt;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::vec::IntoIter;
@@ -555,6 +557,316 @@ fn tool_input_as_arguments(input: &serde_json::Value) -> String {
     }
 }
 
+#[derive(Debug, Clone)]
+struct AggregatedToolCall {
+    id: String,
+    name: String,
+    args: String,
+}
+
+fn build_responses_output_from_aggregated(
+    output_items: &[serde_json::Value],
+    reasoning_out: &str,
+    text_out: &str,
+    tool_calls: &HashMap<String, AggregatedToolCall>,
+) -> Vec<serde_json::Value> {
+    if !output_items.is_empty() {
+        return output_items.to_vec();
+    }
+
+    let mut output = Vec::new();
+
+    if !reasoning_out.is_empty() {
+        output.push(serde_json::json!({
+            "type": "reasoning",
+            "summary": [{"type": "reasoning_text", "text": reasoning_out}]
+        }));
+    }
+
+    if !text_out.is_empty() {
+        output.push(serde_json::json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": text_out}]
+        }));
+    }
+
+    for tool in tool_calls.values() {
+        output.push(serde_json::json!({
+            "type": "function_call",
+            "call_id": tool.id,
+            "name": tool.name,
+            "arguments": if tool.args.is_empty() { "{}" } else { &tool.args },
+        }));
+    }
+
+    output
+}
+
+/// 将 Responses SSE 流聚合为单个 Responses JSON（用于上游强制 stream=true 的场景）
+///
+/// 主要用于 Codex 上游：客户端请求非流式时，上游仍返回 SSE，
+/// 此函数负责 drain 全部事件并还原为可继续走协议转换链路的 Responses 响应体。
+pub async fn drain_responses_sse_to_json(
+    response: reqwest::Response,
+    fallback_model: Option<&str>,
+) -> std::result::Result<serde_json::Value, String> {
+    let stream = response.bytes_stream().map(|item| {
+        item.map(Vec::from)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    });
+    drain_responses_sse_bytes(stream, fallback_model).await
+}
+
+async fn drain_responses_sse_bytes<S>(
+    mut stream: S,
+    fallback_model: Option<&str>,
+) -> std::result::Result<serde_json::Value, String>
+where
+    S: Stream<Item = std::result::Result<Vec<u8>, std::io::Error>> + Unpin,
+{
+    let mut parser = SseParser::new();
+
+    let mut text_out = String::new();
+    let mut reasoning_out = String::new();
+    let mut tool_calls: HashMap<String, AggregatedToolCall> = HashMap::new();
+    let mut item_id_to_call_id: HashMap<String, String> = HashMap::new();
+    let mut output_items: Vec<serde_json::Value> = Vec::new();
+    let mut completed_response: Option<serde_json::Value> = None;
+    let mut upstream_error: Option<String> = None;
+    let mut status = "completed".to_string();
+    let mut usage: Option<serde_json::Value> = None;
+
+    let mut process_event_data = |data: &str| {
+        let json: serde_json::Value = match serde_json::from_str(data) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let event_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        match event_type {
+            "response.output_text.delta" | "response.text.delta" => {
+                if let Some(delta) = json.get("delta").and_then(|d| d.as_str()) {
+                    text_out.push_str(delta);
+                }
+            }
+            "response.reasoning_summary_text.delta"
+            | "response.reasoning_text.delta"
+            | "response.reasoning.delta"
+            | "response.output_reasoning.delta" => {
+                if let Some(delta) = json.get("delta").and_then(|d| d.as_str()) {
+                    reasoning_out.push_str(delta);
+                }
+            }
+            "response.output_item.added" => {
+                if let Some(item) = json.get("item") {
+                    if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+                        let call_id = item
+                            .get("call_id")
+                            .or_else(|| item.get("id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if !call_id.is_empty() {
+                            let name = item
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            tool_calls.entry(call_id.clone()).or_insert_with(|| {
+                                AggregatedToolCall {
+                                    id: call_id.clone(),
+                                    name,
+                                    args: String::new(),
+                                }
+                            });
+                            if let Some(item_id) = item.get("id").and_then(|v| v.as_str()) {
+                                if item_id != call_id {
+                                    item_id_to_call_id.insert(item_id.to_string(), call_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "response.output_item.done" => {
+                if let Some(item) = json.get("item") {
+                    output_items.push(item.clone());
+                    if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+                        let call_id = item
+                            .get("call_id")
+                            .or_else(|| item.get("id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if !call_id.is_empty() {
+                            let name = item
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let args = item
+                                .get("arguments")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            tool_calls
+                                .entry(call_id.clone())
+                                .and_modify(|t| {
+                                    if t.name.is_empty() {
+                                        t.name = name.clone();
+                                    }
+                                    if t.args.is_empty() {
+                                        t.args = args.clone();
+                                    }
+                                })
+                                .or_insert(AggregatedToolCall {
+                                    id: call_id,
+                                    name,
+                                    args,
+                                });
+                        }
+                    }
+                }
+            }
+            "response.function_call_arguments.delta" | "response.function_call.parameter_delta" => {
+                let reference = json
+                    .get("item_id")
+                    .or_else(|| json.get("call_id"))
+                    .or_else(|| json.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if reference.is_empty() {
+                    return;
+                }
+                let call_id = if tool_calls.contains_key(&reference) {
+                    Some(reference.clone())
+                } else {
+                    item_id_to_call_id.get(&reference).cloned()
+                };
+                if let Some(delta) = json.get("delta").and_then(|v| v.as_str()) {
+                    if let Some(cid) = call_id {
+                        tool_calls
+                            .entry(cid.clone())
+                            .or_insert(AggregatedToolCall {
+                                id: cid,
+                                name: String::new(),
+                                args: String::new(),
+                            })
+                            .args
+                            .push_str(delta);
+                    }
+                }
+            }
+            "response.completed" | "response.done" => {
+                let resp = json.get("response").cloned();
+                if let Some(r) = resp {
+                    usage = r.get("usage").cloned().or(usage.clone());
+                    status = r
+                        .get("status")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or(status.as_str())
+                        .to_string();
+                    completed_response = Some(r);
+                } else {
+                    usage = json.get("usage").cloned().or(usage.clone());
+                }
+            }
+            "response.failed" => {
+                upstream_error = Some(
+                    json.get("response")
+                        .and_then(|r| r.get("error"))
+                        .and_then(|e| e.get("message"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("Upstream error")
+                        .to_string(),
+                );
+            }
+            _ => {}
+        }
+    };
+
+    while let Some(item) = stream.next().await {
+        let bytes = item.map_err(|e| format!("读取上游流失败：{}", e))?;
+        let events = parser.feed(&bytes);
+        for event in events {
+            if !event.data.is_empty() {
+                process_event_data(&event.data);
+            }
+        }
+    }
+
+    // 刷新解析器缓冲，处理未以换行结尾的最后一行
+    for event in parser.feed(b"\n") {
+        if !event.data.is_empty() {
+            process_event_data(&event.data);
+        }
+    }
+
+    let has_aggregated_payload =
+        !text_out.is_empty() || !reasoning_out.is_empty() || !tool_calls.is_empty();
+
+    if let Some(mut completed) = completed_response {
+        if let Some(obj) = completed.as_object_mut() {
+            let has_output = obj
+                .get("output")
+                .and_then(|v| v.as_array())
+                .map(|arr| !arr.is_empty())
+                .unwrap_or(false);
+
+            if !has_output {
+                obj.insert(
+                    "output".to_string(),
+                    serde_json::json!(build_responses_output_from_aggregated(
+                        &output_items,
+                        &reasoning_out,
+                        &text_out,
+                        &tool_calls
+                    )),
+                );
+            }
+            if !obj.contains_key("usage") {
+                if let Some(u) = usage.clone() {
+                    obj.insert("usage".to_string(), u);
+                }
+            }
+        }
+        return Ok(completed);
+    }
+
+    if upstream_error.is_some() && !has_aggregated_payload && output_items.is_empty() {
+        return Err(upstream_error.unwrap_or_else(|| "上游响应失败".to_string()));
+    }
+
+    if !has_aggregated_payload && output_items.is_empty() {
+        return Err("上游流未返回可聚合的响应内容".to_string());
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+
+    Ok(serde_json::json!({
+        "id": format!("resp_{}", now),
+        "object": "response",
+        "created_at": now,
+        "status": status,
+        "model": fallback_model.unwrap_or(""),
+        "output": build_responses_output_from_aggregated(
+            &output_items,
+            &reasoning_out,
+            &text_out,
+            &tool_calls
+        ),
+        "usage": usage.unwrap_or_else(|| serde_json::json!({
+            "input_tokens": 0_u64,
+            "output_tokens": 0_u64,
+            "total_tokens": 0_u64
+        })),
+    }))
+}
+
 /// 解析单个 Responses 流式事件
 pub fn parse_responses_event(
     json: &serde_json::Value,
@@ -586,8 +898,9 @@ pub fn parse_responses_event(
         }
         "response.function_call.parameter_delta" => {
             let call_id = json
-                .get("id")
-                .or_else(|| json.get("call_id"))
+                .get("call_id")
+                .or_else(|| json.get("id"))
+                .or_else(|| json.get("item_id"))
                 .and_then(|i| i.as_str())
                 .unwrap_or("")
                 .to_string();
@@ -604,8 +917,9 @@ pub fn parse_responses_event(
         }
         "response.function_call_arguments.delta" => {
             let call_id = json
-                .get("id")
-                .or_else(|| json.get("call_id"))
+                .get("call_id")
+                .or_else(|| json.get("id"))
+                .or_else(|| json.get("item_id"))
                 .and_then(|i| i.as_str())
                 .unwrap_or("")
                 .to_string();
@@ -625,8 +939,8 @@ pub fn parse_responses_event(
         }
         "response.function_call.completed" => {
             let id = json
-                .get("id")
-                .or_else(|| json.get("call_id"))
+                .get("call_id")
+                .or_else(|| json.get("id"))
                 .and_then(|i| i.as_str())
                 .unwrap_or("")
                 .to_string();
@@ -646,12 +960,12 @@ pub fn parse_responses_event(
                 input,
             }))
         }
-        "response.output_item.added" | "response.output_item.done" => {
+        "response.output_item.added" => {
             let item = json.get("item").unwrap_or(&serde_json::Value::Null);
             if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
                 let id = item
-                    .get("id")
-                    .or_else(|| item.get("call_id"))
+                    .get("call_id")
+                    .or_else(|| item.get("id"))
                     .and_then(|i| i.as_str())
                     .unwrap_or("")
                     .to_string();
@@ -676,6 +990,7 @@ pub fn parse_responses_event(
             }
             Ok(None)
         }
+        "response.output_item.done" => Ok(None),
         "response.output_item.delta" => {
             let item = json.get("item").unwrap_or(&serde_json::Value::Null);
             let item_type = item.get("type").and_then(|t| t.as_str());
@@ -703,8 +1018,8 @@ pub fn parse_responses_event(
             // 处理 function_call 类型的参数增量
             if item_type == Some("function_call") {
                 let call_id = item
-                    .get("id")
-                    .or_else(|| item.get("call_id"))
+                    .get("call_id")
+                    .or_else(|| item.get("id"))
                     .and_then(|i| i.as_str())
                     .unwrap_or("")
                     .to_string();
@@ -732,8 +1047,20 @@ pub fn parse_responses_event(
 
             // Extract stop reason from output
             let response = json.get("response").unwrap_or(json);
+            if let Some(sr) = response.get("stop_reason").and_then(|v| v.as_str()) {
+                stop_reason = Some(match sr {
+                    "tool_use" | "tool_calls" | "function_call" => CanonicalStopReason::ToolUse,
+                    "max_output_tokens" | "max_tokens" => CanonicalStopReason::MaxTokens,
+                    "stop_sequence" => CanonicalStopReason::StopSequence,
+                    _ => CanonicalStopReason::EndTurn,
+                });
+            }
+            let mut has_function_call = false;
             if let Some(output) = response.get("output").and_then(|o| o.as_array()) {
                 for item in output {
+                    if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+                        has_function_call = true;
+                    }
                     if item.get("type").and_then(|t| t.as_str()) == Some("message") {
                         if let Some(status) = item.get("status").and_then(|s| s.as_str()) {
                             if status == "incomplete" {
@@ -742,6 +1069,9 @@ pub fn parse_responses_event(
                         }
                     }
                 }
+            }
+            if has_function_call && stop_reason == Some(CanonicalStopReason::EndTurn) {
+                stop_reason = Some(CanonicalStopReason::ToolUse);
             }
 
             if let Some(reason) = stop_reason {
@@ -975,6 +1305,7 @@ pub struct AnthropicSseWrapper {
     sent_content_start: bool,
     last_index: u64,
     stopped: bool,
+    saw_tool_use: bool,
 }
 
 impl AnthropicSseWrapper {
@@ -984,6 +1315,7 @@ impl AnthropicSseWrapper {
             sent_content_start: false,
             last_index: 0,
             stopped: false,
+            saw_tool_use: false,
         }
     }
 
@@ -1028,13 +1360,15 @@ impl AnthropicSseWrapper {
                 name,
                 input,
             } => {
+                self.saw_tool_use = true;
                 let mut outputs = Vec::new();
                 self.emit_message_start_if_needed(&mut outputs)?;
+                let idx = index.unwrap_or(0);
                 outputs.push(format!(
                     "event: content_block_start\ndata: {}\n\n",
                     serde_json::to_string(&serde_json::json!({
                         "type": "content_block_start",
-                        "index": index.unwrap_or(0),
+                        "index": idx,
                         "content_block": {
                             "type": "tool_use",
                             "id": id,
@@ -1044,25 +1378,36 @@ impl AnthropicSseWrapper {
                     }))
                     .map_err(|e| anyhow::anyhow!(e))?
                 ));
+                self.sent_content_start = true;
+                self.last_index = idx;
                 Ok(outputs)
             }
             CanonicalStreamEvent::ToolInputDelta {
                 index, input_chunk, ..
-            } => Ok(vec![format!(
-                "event: content_block_delta\ndata: {}\n\n",
-                serde_json::to_string(&serde_json::json!({
-                    "type": "content_block_delta",
-                    "index": index.unwrap_or(0),
-                    "delta": {
-                        "type": "input_json_delta",
-                        "partial_json": input_chunk
-                    }
-                }))
-                .map_err(|e| anyhow::anyhow!(e))?
-            )]),
+            } => {
+                self.saw_tool_use = true;
+                Ok(vec![format!(
+                    "event: content_block_delta\ndata: {}\n\n",
+                    serde_json::to_string(&serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": index.unwrap_or(0),
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": input_chunk
+                        }
+                    }))
+                    .map_err(|e| anyhow::anyhow!(e))?
+                )])
+            }
             CanonicalStreamEvent::Stop { reason } => {
                 self.stopped = true;
-                let stop_reason = match reason {
+                let effective_reason =
+                    if *reason == CanonicalStopReason::EndTurn && self.saw_tool_use {
+                        CanonicalStopReason::ToolUse
+                    } else {
+                        reason.clone()
+                    };
+                let stop_reason = match effective_reason {
                     CanonicalStopReason::EndTurn => "end_turn",
                     CanonicalStopReason::StopSequence => "stop_sequence",
                     CanonicalStopReason::MaxTokens => "max_tokens",
@@ -1759,6 +2104,28 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_responses_event_prefers_call_id_over_internal_id() {
+        let json = serde_json::json!({
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "id": "fc_abc",
+                "call_id": "call_xyz",
+                "name": "get_weather",
+                "arguments": "{\"city\":\"Tokyo\"}"
+            }
+        });
+        let event = parse_responses_event(&json).unwrap();
+        match event {
+            Some(CanonicalStreamEvent::ToolUseStart { id, .. }) => {
+                assert_eq!(id, "call_xyz");
+            }
+            _ => panic!("expected Some(ToolUseStart)"),
+        }
+    }
+
+    #[test]
     fn test_parse_responses_event_output_item_delta_function_call() {
         let json = serde_json::json!({
             "type": "response.output_item.delta",
@@ -1803,6 +2170,47 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_responses_event_completed_with_function_call_is_tool_use() {
+        let json = serde_json::json!({
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "hello_tool",
+                        "arguments": "{\"name\":\"world\"}"
+                    }
+                ]
+            }
+        });
+        let event = parse_responses_event(&json).unwrap();
+        match event {
+            Some(CanonicalStreamEvent::Stop { reason }) => {
+                assert_eq!(reason, CanonicalStopReason::ToolUse);
+            }
+            _ => panic!("expected Some(Stop)"),
+        }
+    }
+
+    #[test]
+    fn test_parse_responses_event_output_item_done_ignored() {
+        let json = serde_json::json!({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "hello_tool",
+                "arguments": "{\"name\":\"world\"}"
+            }
+        });
+        let event = parse_responses_event(&json).unwrap();
+        assert!(event.is_none());
+    }
+
+    #[test]
     fn test_parse_responses_event_unknown_type() {
         let json = serde_json::json!({
             "type": "response.created",
@@ -1828,5 +2236,190 @@ mod tests {
             CanonicalStreamEvent::Raw { data, .. } => assert_eq!(data, "[DONE]"),
             _ => panic!("expected Raw [DONE]"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_drain_responses_sse_captures_completed_response() {
+        let completed = serde_json::json!({
+            "id": "resp_x",
+            "object": "response",
+            "status": "completed",
+            "output": [{"type":"message","content":[{"type":"output_text","text":"hi"}]}],
+            "usage": {"input_tokens": 3, "output_tokens": 1}
+        });
+        let chunks = vec![
+            br#"event: response.created
+data: {"response":{"id":"resp_x"}}
+
+"#
+            .to_vec(),
+            br#"event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"h"}
+
+"#
+            .to_vec(),
+            br#"event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"i"}
+
+"#
+            .to_vec(),
+            format!(
+                "event: response.completed\ndata: {}\n\n",
+                serde_json::json!({"type":"response.completed","response": completed})
+            )
+            .into_bytes(),
+        ];
+
+        let out = drain_responses_sse_bytes(
+            futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>)),
+            Some("gpt-5.5"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out["id"], "resp_x");
+        assert_eq!(out["status"], "completed");
+        assert_eq!(out["usage"]["input_tokens"], 3);
+        assert_eq!(out["output"][0]["content"][0]["text"], "hi");
+    }
+
+    #[tokio::test]
+    async fn test_drain_responses_sse_flushes_final_unterminated_line() {
+        let completed = serde_json::json!({
+            "response": {
+                "id": "resp_short",
+                "status": "completed",
+                "output": [{"type":"message","content":[{"type":"output_text","text":"ok"}]}],
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            }
+        });
+        let chunks = vec![
+            br#"event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"ok"}
+
+"#
+            .to_vec(),
+            format!(
+                "event: response.completed\ndata: {}",
+                serde_json::json!({
+                    "type":"response.completed",
+                    "response": completed["response"]
+                })
+            )
+            .into_bytes(),
+        ];
+
+        let out = drain_responses_sse_bytes(
+            futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>)),
+            Some("gpt-5.5"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out["id"], "resp_short");
+        assert_eq!(out["status"], "completed");
+        assert_eq!(out["output"][0]["content"][0]["text"], "ok");
+    }
+
+    #[tokio::test]
+    async fn test_drain_responses_sse_item_id_differs_from_call_id() {
+        let chunks = vec![
+            br#"event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"id":"fc_abc","call_id":"call_xyz","type":"function_call","name":"get_weather"}}
+
+"#
+            .to_vec(),
+            br#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_abc","delta":"{\"city\":\""}
+
+"#
+            .to_vec(),
+            br#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_abc","delta":"Tokyo\"}"}
+
+"#
+            .to_vec(),
+            br#"event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"id":"fc_abc","call_id":"call_xyz","type":"function_call","name":"get_weather","arguments":"{\"city\":\"Tokyo\"}"}}
+
+"#
+            .to_vec(),
+            br#"event: response.completed
+data: {"type":"response.completed","response":{"status":"completed"}}
+
+"#
+            .to_vec(),
+        ];
+
+        let out = drain_responses_sse_bytes(
+            futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>)),
+            Some("gpt-5.5"),
+        )
+        .await
+        .unwrap();
+        let output = out["output"].as_array().unwrap();
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0]["type"], "function_call");
+        assert_eq!(output[0]["call_id"], "call_xyz");
+        assert_eq!(output[0]["arguments"], "{\"city\":\"Tokyo\"}");
+    }
+
+    #[tokio::test]
+    async fn test_drain_responses_sse_aggregates_reasoning_and_tool_args_without_completed() {
+        let chunks = vec![
+            br#"event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","delta":"think "}
+
+"#
+            .to_vec(),
+            br#"event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","delta":"more"}
+
+"#
+            .to_vec(),
+            br#"event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"c1","name":"do_thing"}}
+
+"#
+            .to_vec(),
+            br#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"c1","delta":"{\"a\":"}
+
+"#
+            .to_vec(),
+            br#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"c1","delta":"1}"}
+
+"#
+            .to_vec(),
+        ];
+
+        let out = drain_responses_sse_bytes(
+            futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>)),
+            Some("gpt-5.5"),
+        )
+        .await
+        .unwrap();
+        let output = out["output"].as_array().unwrap();
+        assert_eq!(output[0]["type"], "reasoning");
+        assert_eq!(output[0]["summary"][0]["text"], "think more");
+        assert_eq!(output[1]["type"], "function_call");
+        assert_eq!(output[1]["name"], "do_thing");
+        assert_eq!(output[1]["arguments"], "{\"a\":1}");
+    }
+
+    #[tokio::test]
+    async fn test_drain_responses_sse_surfaces_failed_error() {
+        let chunks = vec![br#"event: response.failed
+data: {"type":"response.failed","response":{"error":{"message":"boom"}}}
+
+"#
+        .to_vec()];
+
+        let err = drain_responses_sse_bytes(
+            futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>)),
+            Some("gpt-5.5"),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("boom"));
     }
 }
