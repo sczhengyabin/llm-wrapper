@@ -222,6 +222,16 @@ fn parse_stop(stop_val: &serde_json::Value) -> Option<Vec<String>> {
     }
 }
 
+fn parse_reasoning_effort(body: &serde_json::Value) -> Option<String> {
+    if let Some(effort) = body.get("reasoning_effort").and_then(|v| v.as_str()) {
+        return Some(effort.to_string());
+    }
+    body.get("reasoning")
+        .and_then(|r| r.get("effort"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
 pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest> {
     let model = body
         .get("model")
@@ -271,6 +281,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         .unwrap_or(false);
     let tools = body.get("tools").and_then(parse_tools);
     let tool_choice = body.get("tool_choice").cloned();
+    let reasoning_effort = parse_reasoning_effort(body);
 
     Ok(CanonicalRequest {
         model: model.to_string(),
@@ -283,6 +294,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         stream,
         tools,
         tool_choice,
+        reasoning_effort,
         unmapped: vec![],
     })
 }
@@ -537,6 +549,9 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
     }
     if let Some(tool_choice) = &canonical.tool_choice {
         body["tool_choice"] = tool_choice.clone();
+    }
+    if let Some(effort) = &canonical.reasoning_effort {
+        body["reasoning_effort"] = json!(effort);
     }
 
     Ok(body)
@@ -818,6 +833,29 @@ mod tests {
         assert_eq!(back["max_tokens"], 100);
         assert_eq!(back["messages"][0]["role"], "user");
         assert_eq!(back["messages"][0]["content"], "Hello");
+    }
+
+    #[test]
+    fn test_to_canonical_request_parses_reasoning_effort() {
+        let body = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "reasoning": {"effort": "high"}
+        });
+        let canonical = to_canonical_request(&body).unwrap();
+        assert_eq!(canonical.reasoning_effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn test_from_canonical_request_emits_reasoning_effort() {
+        let body = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "reasoning_effort": "low"
+        });
+        let canonical = to_canonical_request(&body).unwrap();
+        let back = from_canonical_request(&canonical).unwrap();
+        assert_eq!(back["reasoning_effort"], "low");
     }
 
     #[test]

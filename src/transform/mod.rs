@@ -186,6 +186,8 @@ fn detect_unmapped_fields(
                 "prompt_tags",
                 "store",
                 "replay",
+                "reasoning",
+                "reasoning_effort",
             ]
             .into_iter()
             .collect(),
@@ -202,6 +204,8 @@ fn detect_unmapped_fields(
                 "tool_choice",
                 "metadata",
                 "thinking",
+                "output_config",
+                "effort",
                 "budget",
             ]
             .into_iter()

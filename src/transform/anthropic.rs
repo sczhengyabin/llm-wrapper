@@ -212,6 +212,23 @@ fn parse_tools(tools: &serde_json::Value) -> Option<Vec<CanonicalTool>> {
     }
 }
 
+fn parse_reasoning_effort(body: &serde_json::Value) -> Option<String> {
+    if let Some(effort) = body
+        .get("output_config")
+        .and_then(|cfg| cfg.get("effort"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(effort.to_string());
+    }
+    if let Some(effort) = body.get("effort").and_then(|v| v.as_str()) {
+        return Some(effort.to_string());
+    }
+    body.get("thinking")
+        .and_then(|t| t.get("effort"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
 pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest> {
     let model = body
         .get("model")
@@ -263,6 +280,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
 
     let tools = body.get("tools").and_then(parse_tools);
     let tool_choice = body.get("tool_choice").cloned();
+    let reasoning_effort = parse_reasoning_effort(body);
 
     Ok(CanonicalRequest {
         model: model.to_string(),
@@ -275,6 +293,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         stream,
         tools,
         tool_choice,
+        reasoning_effort,
         unmapped: vec![],
     })
 }
@@ -443,6 +462,9 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
     if let Some(tool_choice) = &canonical.tool_choice {
         body["tool_choice"] = tool_choice.clone();
     }
+    if let Some(effort) = &canonical.reasoning_effort {
+        body["output_config"] = json!({ "effort": effort });
+    }
 
     Ok(body)
 }
@@ -606,6 +628,7 @@ mod tests {
             stream: false,
             tools: None,
             tool_choice: None,
+            reasoning_effort: None,
             unmapped: vec![],
         };
 
@@ -645,6 +668,43 @@ mod tests {
             assert_eq!(id, "tool_1");
             assert_eq!(name, "search");
         }
+    }
+
+    #[test]
+    fn test_to_canonical_request_parses_output_config_effort() {
+        let body = json!({
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hi"}],
+            "output_config": {"effort": "medium"}
+        });
+        let canonical = to_canonical_request(&body).unwrap();
+        assert_eq!(canonical.reasoning_effort.as_deref(), Some("medium"));
+    }
+
+    #[test]
+    fn test_from_canonical_request_emits_output_config_effort() {
+        let canonical = CanonicalRequest {
+            model: "claude-3".to_string(),
+            messages: vec![CanonicalMessage {
+                role: CanonicalRole::User,
+                content: vec![CanonicalContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+            }],
+            system: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: Some(128),
+            stop_sequences: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            reasoning_effort: Some("low".to_string()),
+            unmapped: vec![],
+        };
+
+        let body = from_canonical_request(&canonical).unwrap();
+        assert_eq!(body["output_config"]["effort"], "low");
     }
 
     #[test]

@@ -80,6 +80,8 @@ pub struct CanonicalRequest {
     pub tools: Option<Vec<CanonicalTool>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     /// 无法映射到目标协议的字段名列表
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unmapped: Vec<String>,
@@ -140,6 +142,7 @@ mod tests {
             stream: false,
             tools: None,
             tool_choice: None,
+            reasoning_effort: Some("medium".to_string()),
             unmapped: vec![],
         };
 
@@ -147,6 +150,7 @@ mod tests {
         let parsed: CanonicalRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.model, "gpt-4");
         assert_eq!(parsed.temperature, Some(0.7));
+        assert_eq!(parsed.reasoning_effort.as_deref(), Some("medium"));
         assert_eq!(parsed.messages.len(), 1);
         assert!(parsed.system.is_some());
     }

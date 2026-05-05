@@ -42,6 +42,16 @@ fn normalize_tool_choice_for_responses(
     }
 }
 
+fn parse_reasoning_effort(body: &serde_json::Value) -> Option<String> {
+    if let Some(effort) = body.get("reasoning_effort").and_then(|v| v.as_str()) {
+        return Some(effort.to_string());
+    }
+    body.get("reasoning")
+        .and_then(|r| r.get("effort"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
 /// 解析 Responses API 的 input content block 为 CanonicalContentBlock
 #[allow(unused_variables)]
 fn parse_responses_content_block(block: &serde_json::Value) -> Option<CanonicalContentBlock> {
@@ -285,6 +295,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
             .and_then(|s| s.as_bool())
             .unwrap_or(false),
         tool_choice: body.get("tool_choice").cloned(),
+        reasoning_effort: parse_reasoning_effort(body),
         tools: if tools.as_ref().map_or(true, |t| t.is_empty()) {
             None
         } else {
@@ -380,7 +391,9 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
                             })
                             .collect::<Vec<_>>()
                             .join("\n\n");
-                        let output = if output.trim() == "[Tool result missing due to internal error]" {
+                        let output = if output.trim()
+                            == "[Tool result missing due to internal error]"
+                        {
                             "Error: Tool runtime internal error (result missing). Please retry the same tool call with identical parameters.".to_string()
                         } else {
                             output
@@ -551,6 +564,9 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
             .and_then(normalize_tool_choice_for_responses)
         {
             obj.insert("tool_choice".to_string(), tc);
+        }
+        if let Some(effort) = &canonical.reasoning_effort {
+            obj.insert("reasoning".to_string(), json!({ "effort": effort }));
         }
     }
 
@@ -953,6 +969,7 @@ mod tests {
             stream: false,
             tools: None,
             tool_choice: None,
+            reasoning_effort: None,
             unmapped: vec![],
         };
 
@@ -961,12 +978,10 @@ mod tests {
         assert_eq!(input.len(), 1);
         assert_eq!(input[0]["type"], "function_call_output");
         assert_eq!(input[0]["call_id"], "call_abc");
-        assert!(
-            input[0]["output"]
-                .as_str()
-                .unwrap()
-                .contains("Please retry the same tool call")
-        );
+        assert!(input[0]["output"]
+            .as_str()
+            .unwrap()
+            .contains("Please retry the same tool call"));
     }
 
     #[test]
@@ -989,6 +1004,7 @@ mod tests {
             stream: false,
             tools: None,
             tool_choice: None,
+            reasoning_effort: None,
             unmapped: vec![],
         };
 
@@ -1027,6 +1043,7 @@ mod tests {
             stream: false,
             tools: None,
             tool_choice: None,
+            reasoning_effort: None,
             unmapped: vec![],
         };
 
@@ -1252,6 +1269,7 @@ mod tests {
                 input_schema: json!({"type": "object"}),
             }]),
             tool_choice: None,
+            reasoning_effort: None,
             unmapped: vec![],
         };
 
@@ -1282,6 +1300,7 @@ mod tests {
             stream: false,
             tools: None,
             tool_choice: Some(json!({"type":"any"})),
+            reasoning_effort: None,
             unmapped: vec![],
         };
 
@@ -1307,6 +1326,7 @@ mod tests {
             stream: false,
             tools: None,
             tool_choice: Some(json!({"type":"tool","name":"get_weather"})),
+            reasoning_effort: None,
             unmapped: vec![],
         };
 
@@ -1315,6 +1335,43 @@ mod tests {
             result["tool_choice"],
             json!({"type":"function","name":"get_weather"})
         );
+    }
+
+    #[test]
+    fn test_to_canonical_request_parses_reasoning_effort() {
+        let body = json!({
+            "model": "gpt-4.1",
+            "input": "hello",
+            "reasoning": {"effort": "high"}
+        });
+        let req = to_canonical_request(&body).unwrap();
+        assert_eq!(req.reasoning_effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn test_from_canonical_request_emits_reasoning_effort_to_reasoning() {
+        let canonical = CanonicalRequest {
+            model: "gpt-5.3-codex".to_string(),
+            messages: vec![CanonicalMessage {
+                role: CanonicalRole::User,
+                content: vec![CanonicalContentBlock::Text {
+                    text: "hi".to_string(),
+                }],
+            }],
+            system: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            reasoning_effort: Some("medium".to_string()),
+            unmapped: vec![],
+        };
+
+        let result = from_canonical_request(&canonical).unwrap();
+        assert_eq!(result["reasoning"]["effort"], "medium");
     }
 
     #[test]
