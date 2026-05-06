@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use tracing::debug;
 
 /// 调试信息
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct DebugInfo {
     pub client_request: serde_json::Value,
     pub client_ip: String,
@@ -160,6 +160,7 @@ impl Proxy {
     }
 
     /// 代理请求到上游（带调试）- 用于直接转发，不做协议转换
+    #[allow(clippy::too_many_arguments)]
     pub async fn proxy_request_with_debug(
         &self,
         route: &RouteResult,
@@ -248,8 +249,7 @@ impl Proxy {
                     }
                 }
                 // 返回原始 item
-                item.map(|chunk| chunk)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                item.map_err(std::io::Error::other)
             });
 
             let mut resp_builder = actix_web::HttpResponse::build(
@@ -619,6 +619,7 @@ fn sanitize_codex_function_call_fields(input: &mut serde_json::Value) {
 /// Codex 对 content block 类型有特殊要求：
 /// - assistant 消息的 content block 必须是 output_text（不支持 input_text）
 /// - user 消息的 content block 必须是 input_text（不支持 output_text）
+///
 /// 标准 Responses API 转换层产生的 user 消息用 input_text（正确），
 /// 但 assistant 消息也用 input_text（Codex 需要 output_text），所以需要修正。
 fn fix_codex_content_block_types(input: &mut serde_json::Value) {

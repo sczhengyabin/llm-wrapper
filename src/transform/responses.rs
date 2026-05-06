@@ -146,7 +146,7 @@ fn parse_responses_input_item(item: &serde_json::Value) -> Vec<CanonicalMessage>
                     }
                 } else if let Some(arr) = content.as_array() {
                     arr.iter()
-                        .filter_map(|b| parse_responses_content_block(b))
+                        .filter_map(parse_responses_content_block)
                         .collect()
                 } else {
                     vec![]
@@ -296,7 +296,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
             .unwrap_or(false),
         tool_choice: body.get("tool_choice").cloned(),
         reasoning_effort: parse_reasoning_effort(body),
-        tools: if tools.as_ref().map_or(true, |t| t.is_empty()) {
+        tools: if tools.as_ref().is_none_or(|t| t.is_empty()) {
             None
         } else {
             tools
@@ -329,13 +329,10 @@ pub fn from_canonical_request(canonical: &CanonicalRequest) -> Result<serde_json
     let mut input_items = vec![];
 
     for msg in &canonical.messages {
-        match msg.role {
-            CanonicalRole::System => {
-                // System messages in messages array are merged into instructions
-                // but we handle them here just in case
-                continue;
-            }
-            _ => {}
+        if msg.role == CanonicalRole::System {
+            // System messages in messages array are merged into instructions
+            // but we handle them here just in case
+            continue;
         }
 
         // Check for tool-related content blocks
@@ -652,8 +649,8 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
                         }
                     }
                 }
-                "file_search" | "web_search" | "code_interpreter" | _ => {
-                    // Skip unmapped output types
+                _ => {
+                    // Skip unmapped output types (file_search, web_search, code_interpreter)
                 }
             }
         }
@@ -686,16 +683,16 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
     };
 
     // Parse usage
-    let usage = body.get("usage").and_then(|u| {
+    let usage = body.get("usage").map(|u| {
         let input_tokens = u.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
         let output_tokens = u.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
         let total_tokens = u.get("total_tokens").and_then(|t| t.as_u64());
 
-        Some(CanonicalUsage {
+        CanonicalUsage {
             input_tokens,
             output_tokens,
             total_tokens,
-        })
+        }
     });
 
     Ok(CanonicalResponse {

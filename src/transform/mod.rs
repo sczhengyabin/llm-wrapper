@@ -220,30 +220,36 @@ fn detect_unmapped_fields(
     }
 }
 
-/// 异步完整请求转换：from → canonical → to（不含图片下载）
-/// 图片 URL 解析由调用方根据目标协议决定是否执行
-pub async fn convert_request_with_images(
-    from: Protocol,
-    to: Protocol,
-    body: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    let mut canonical = request_to_canonical(from, body)?;
-    detect_unmapped_fields(from, body, &mut canonical);
-    if !canonical.unmapped.is_empty() {
-        tracing::warn!("请求包含无法映射到目标协议的字段: {:?}", canonical.unmapped);
-    }
-    // 注意：不在这里无条件解析图片 URL。
-    // 只有 Anthropic 目标需要 base64 图片；Chat Completions 和 Responses
-    // 支持 image_url，保留 URL 即可。图片解析由调用方按需执行。
-    canonical_to_request(to, &canonical)
-}
-
 /// 对已转换的请求体解析图片 URL（仅用于 Anthropic 目标）
-/// 将 canonical 中的 Image::Url 下载为 Image::Base64
+/// 直接在 JSON 树上操作，避免 canonical 往返丢失字段
 pub async fn resolve_images_for_anthropic(body: &serde_json::Value) -> Result<serde_json::Value> {
-    let mut canonical = request_to_canonical(Protocol::AnthropicMessages, body)?;
-    resolve_image_urls(&mut canonical).await?;
-    canonical_to_request(Protocol::AnthropicMessages, &canonical)
+    let downloader = ImageDownloader::new();
+    let mut result = body.clone();
+
+    if let Some(messages) = result.get_mut("messages").and_then(|m| m.as_array_mut()) {
+        for msg in messages {
+            if let Some(content) = msg.get_mut("content").and_then(|c| c.as_array_mut()) {
+                for block in content {
+                    if block.get("type").and_then(|t| t.as_str()) == Some("image") {
+                        if let Some(source) = block.get_mut("source").and_then(|s| s.as_object_mut()) {
+                            if source.get("type").and_then(|t| t.as_str()) == Some("url") {
+                                if let Some(url) = source.get("url").and_then(|u| u.as_str()) {
+                                    let (base64_data, media_type) =
+                                        downloader.download_to_base64(url).await?;
+                                    source.clear();
+                                    source.insert("type".to_string(), serde_json::json!("base64"));
+                                    source.insert("media_type".to_string(), serde_json::json!(media_type));
+                                    source.insert("data".to_string(), serde_json::json!(base64_data));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 /// 完整的响应转换：from → canonical → to
@@ -367,25 +373,6 @@ where
             }
         }
     }
-}
-
-/// 异步：解析图片 URL 并转为 base64
-pub async fn resolve_image_urls(canonical: &mut CanonicalRequest) -> Result<()> {
-    let downloader = ImageDownloader::new();
-    for message in &mut canonical.messages {
-        for block in &mut message.content {
-            if let CanonicalContentBlock::Image { source } = block {
-                if let CanonicalImageSource::Url { ref url } = source {
-                    let (base64_data, media_type) = downloader.download_to_base64(url).await?;
-                    *source = CanonicalImageSource::Base64 {
-                        media_type,
-                        data: base64_data,
-                    };
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 // 子模块（Phase 3/4 实现）

@@ -5,9 +5,9 @@ use llm_wrapper::proxy;
 use llm_wrapper::router;
 use llm_wrapper::transform::Protocol;
 
-use llm_wrapper::models::UpstreamAuth;
-use llm_wrapper::proxy::apply_param_overrides_inner;
-use llm_wrapper::proxy::DebugInfo;
+use llm_wrapper::models::{ModelAliasSource, UpstreamAuth};
+use llm_wrapper::proxy::{apply_param_overrides_inner, DebugInfo};
+use serde_json::json;
 
 use actix_cors::Cors;
 use actix_files as fs;
@@ -298,13 +298,11 @@ async fn handle_protocol_request(
 
     // 协议转换（不含图片下载）
     let mut upstream_body = if needs_conversion {
-        match llm_wrapper::transform::convert_request_with_images(
+        match llm_wrapper::transform::convert_request(
             entry_protocol,
             target_protocol,
             &body_for_conversion,
-        )
-        .await
-        {
+        ) {
             Ok(b) => b,
             Err(e) => {
                 return HttpResponse::BadRequest().json(json!({
@@ -448,16 +446,7 @@ async fn handle_protocol_request(
                         .map(|v| v.contains("text/event-stream"))
                         .unwrap_or(false);
                     if !is_stream {
-                        let debug_info =
-                            state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-                                client_request: serde_json::Value::Null,
-                                client_ip: String::new(),
-                                client_url: String::new(),
-                                endpoint: String::new(),
-                                upstream_url: String::new(),
-                                upstream_request: serde_json::Value::Null,
-                                upstream_response: serde_json::Value::Null,
-                            });
+                        let debug_info = state.debug_data.get().await.unwrap_or_default();
                         return HttpResponse::Ok().json(json!({
                             "debug": debug_info
                         }));
@@ -485,6 +474,7 @@ async fn handle_protocol_request(
 }
 
 /// 处理流式协议转换：发送请求到上游，获取流式响应，转换 SSE 格式后返回
+#[allow(clippy::too_many_arguments)]
 async fn handle_streaming_conversion(
     proxy: &llm_wrapper::proxy::Proxy,
     route: &llm_wrapper::router::RouteResult,
@@ -538,7 +528,7 @@ async fn handle_streaming_conversion(
                 .map(|result: Result<_, reqwest::Error>| {
                     result
                         .map(Vec::from)
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                        .map_err(std::io::Error::other)
                 });
 
             let converted_stream = convert_stream_sse(target_protocol, entry_protocol, raw_stream);
@@ -564,6 +554,7 @@ async fn handle_streaming_conversion(
 }
 
 /// 非流式转换结果收尾：保存调试信息 + 错误透传 + 响应协议转换
+#[allow(clippy::too_many_arguments)]
 async fn finalize_non_stream_converted_response(
     state: &AppState,
     debug_mode: bool,
@@ -627,15 +618,7 @@ async fn finalize_non_stream_converted_response(
     };
 
     if debug_mode {
-        let debug_info = state.debug_data.get().await.unwrap_or_else(|| DebugInfo {
-            client_request: serde_json::Value::Null,
-            client_ip: String::new(),
-            client_url: String::new(),
-            endpoint: String::new(),
-            upstream_url: String::new(),
-            upstream_request: serde_json::Value::Null,
-            upstream_response: serde_json::Value::Null,
-        });
+        let debug_info = state.debug_data.get().await.unwrap_or_default();
         return HttpResponse::Ok().json(json!({
             "debug": debug_info
         }));
@@ -906,8 +889,6 @@ async fn webui_index() -> HttpResponse {
         .finish()
 }
 
-use serde_json::json;
-
 /// 获取指定上游的模型列表（支持 OAuth token 注入）
 async fn get_upstream_models_by_name(
     state: web::Data<AppState>,
@@ -1118,7 +1099,6 @@ async fn auth_login_stream(state: web::Data<AppState>) -> impl actix_web::Respon
         .content_type("text/event-stream")
         .body(actix_web::body::BodyStream::new(stream))
 }
-use models::ModelAliasSource;
 
 /// 创建上游模型 alias 的请求
 #[derive(Debug, serde::Deserialize)]

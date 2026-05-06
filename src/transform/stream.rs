@@ -49,6 +49,7 @@ pub enum CanonicalStreamEvent {
 }
 
 /// SSE 解析器
+#[derive(Default)]
 pub struct SseParser {
     buffer: String,
     current_event: Option<String>,
@@ -56,10 +57,7 @@ pub struct SseParser {
 
 impl SseParser {
     pub fn new() -> Self {
-        Self {
-            buffer: String::new(),
-            current_event: None,
-        }
+        Self::default()
     }
 
     /// 从数据中解析 SSE 事件，返回完整的事件
@@ -79,9 +77,9 @@ impl SseParser {
             self.buffer.drain(..=newline_pos);
 
             if line.starts_with("event:") {
-                self.current_event = Some(line[6..].trim().to_string());
+                self.current_event = Some(line.strip_prefix("event:").unwrap().trim().to_string());
             } else if line.starts_with("data:") {
-                let data_str = line[5..].trim().to_string();
+                let data_str = line.strip_prefix("data:").unwrap().trim().to_string();
                 if !data_str.is_empty() {
                     let event = self.current_event.take();
                     events.push(SseEvent {
@@ -298,7 +296,7 @@ fn convert_openai_event(sse: &SseEvent) -> Result<CanonicalStreamEvent, String> 
 pub fn parse_openai_event(json: &serde_json::Value) -> Result<CanonicalStreamEvent, String> {
     // Check choices for delta content
     if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
-        if let Some(choice) = choices.get(0) {
+        if let Some(choice) = choices.first() {
             // Check finish_reason first
             if let Some(finish) = choice.get("finish_reason").and_then(|f| f.as_str()) {
                 let reason = match finish {
@@ -613,7 +611,7 @@ pub async fn drain_responses_sse_to_json(
 ) -> std::result::Result<serde_json::Value, String> {
     let stream = response.bytes_stream().map(|item| {
         item.map(Vec::from)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(std::io::Error::other)
     });
     drain_responses_sse_bytes(stream, fallback_model).await
 }
@@ -1300,6 +1298,7 @@ pub fn canonical_to_anthropic_sse(event: &CanonicalStreamEvent) -> Result<String
 /// message_start → content_block_start → content_block_delta → message_delta → message_stop
 /// 但 canonical 事件流中只有 TextDelta/ReasoningDelta/Stop，没有显式的 start 事件。
 /// 此包装器在第一个内容事件之前注入 message_start 和 content_block_start。
+#[derive(Default)]
 pub struct AnthropicSseWrapper {
     sent_message_start: bool,
     sent_content_start: bool,
@@ -1310,13 +1309,7 @@ pub struct AnthropicSseWrapper {
 
 impl AnthropicSseWrapper {
     pub fn new() -> Self {
-        Self {
-            sent_message_start: false,
-            sent_content_start: false,
-            last_index: 0,
-            stopped: false,
-            saw_tool_use: false,
-        }
+        Self::default()
     }
 
     pub fn is_stopped(&self) -> bool {

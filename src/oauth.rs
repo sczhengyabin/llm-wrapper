@@ -449,6 +449,7 @@ impl AuthManager {
     }
 
     /// OpenAI 自定义轮询：先获取 authorization_code，再交换 token
+    #[allow(clippy::too_many_arguments)]
     fn spawn_openai_poller(
         &self,
         upstream_name: String,
@@ -587,6 +588,7 @@ impl AuthManager {
     }
 
     /// 标准 RFC 8628 轮询
+    #[allow(clippy::too_many_arguments)]
     fn spawn_standard_poller(
         &self,
         upstream_name: String,

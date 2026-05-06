@@ -151,7 +151,7 @@ fn parse_message(msg: &serde_json::Value) -> Option<CanonicalMessage> {
                         .to_string();
                     let arguments_raw = func_val.get("arguments").unwrap_or(&json!({})).clone();
                     let input = serde_json::from_str(arguments_raw.to_string().as_str())
-                        .unwrap_or_else(|_| arguments_raw);
+                        .unwrap_or(arguments_raw);
 
                     content.push(CanonicalContentBlock::ToolUse { id, name, input });
                 }
@@ -274,7 +274,7 @@ pub fn to_canonical_request(body: &serde_json::Value) -> Result<CanonicalRequest
         .get("max_tokens")
         .and_then(|m| m.as_u64())
         .or_else(|| body.get("max_completion_tokens").and_then(|m| m.as_u64()));
-    let stop_sequences = body.get("stop").and_then(|s| parse_stop(s));
+    let stop_sequences = body.get("stop").and_then(parse_stop);
     let stream = body
         .get("stream")
         .and_then(|s| s.as_bool())
