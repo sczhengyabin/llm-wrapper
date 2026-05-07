@@ -121,7 +121,66 @@ pub fn convert_request(
     if !canonical.unmapped.is_empty() {
         tracing::warn!("请求包含无法映射到目标协议的字段: {:?}", canonical.unmapped);
     }
-    canonical_to_request(to, &canonical)
+    let mut converted = canonical_to_request(to, &canonical)?;
+    apply_passthrough_fields(from, to, body, &mut converted);
+    Ok(converted)
+}
+
+fn apply_passthrough_fields(
+    from: Protocol,
+    to: Protocol,
+    source_body: &serde_json::Value,
+    converted_body: &mut serde_json::Value,
+) {
+    // Anthropic beta: `context_management` 无 canonical 对应字段。
+    // 为避免在 Anthropic -> Responses 链路中丢失上游行为提示，这里做 best-effort 透传。
+    if from == Protocol::AnthropicMessages && to == Protocol::Responses {
+        if let Some(value) = source_body.get("context_management") {
+            let normalized = normalize_context_management_for_responses(value);
+            if let Some(obj) = converted_body.as_object_mut() {
+                if let Some(arr) = normalized.as_array() {
+                    if !arr.is_empty() {
+                        obj.insert("context_management".to_string(), normalized);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn normalize_context_management_for_responses(value: &serde_json::Value) -> serde_json::Value {
+    fn is_supported_edit(v: &serde_json::Value) -> bool {
+        v.as_object()
+            .and_then(|m| m.get("type"))
+            .and_then(|t| t.as_str())
+            .is_some()
+    }
+
+    match value {
+        // Anthropic beta 常见形态：{"edits":[{...}]}
+        // Codex/Responses 期望：[{...}]
+        serde_json::Value::Object(map) => {
+            if let Some(edits) = map.get("edits").and_then(|v| v.as_array()) {
+                let filtered: Vec<serde_json::Value> = edits
+                    .iter()
+                    .filter(|v| is_supported_edit(v))
+                    .cloned()
+                    .collect();
+                return serde_json::Value::Array(filtered);
+            }
+            // 其他 object 形态（如 keep）不做透传，避免上游 400
+            serde_json::Value::Array(vec![])
+        }
+        serde_json::Value::Array(arr) => {
+            let filtered: Vec<serde_json::Value> = arr
+                .iter()
+                .filter(|v| is_supported_edit(v))
+                .cloned()
+                .collect();
+            serde_json::Value::Array(filtered)
+        }
+        _ => serde_json::Value::Array(vec![]),
+    }
 }
 
 /// 检测无法映射的字段
@@ -207,6 +266,7 @@ fn detect_unmapped_fields(
                 "output_config",
                 "effort",
                 "budget",
+                "context_management",
             ]
             .into_iter()
             .collect(),
@@ -231,15 +291,21 @@ pub async fn resolve_images_for_anthropic(body: &serde_json::Value) -> Result<se
             if let Some(content) = msg.get_mut("content").and_then(|c| c.as_array_mut()) {
                 for block in content {
                     if block.get("type").and_then(|t| t.as_str()) == Some("image") {
-                        if let Some(source) = block.get_mut("source").and_then(|s| s.as_object_mut()) {
+                        if let Some(source) =
+                            block.get_mut("source").and_then(|s| s.as_object_mut())
+                        {
                             if source.get("type").and_then(|t| t.as_str()) == Some("url") {
                                 if let Some(url) = source.get("url").and_then(|u| u.as_str()) {
                                     let (base64_data, media_type) =
                                         downloader.download_to_base64(url).await?;
                                     source.clear();
                                     source.insert("type".to_string(), serde_json::json!("base64"));
-                                    source.insert("media_type".to_string(), serde_json::json!(media_type));
-                                    source.insert("data".to_string(), serde_json::json!(base64_data));
+                                    source.insert(
+                                        "media_type".to_string(),
+                                        serde_json::json!(media_type),
+                                    );
+                                    source
+                                        .insert("data".to_string(), serde_json::json!(base64_data));
                                 }
                             }
                         }
@@ -466,6 +532,7 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 100,
             "thinking": {"budget": 1024},
+            "context_management": {"edits": []},
             "weird_custom_field": 42
         });
         let mut canonical = request_to_canonical(Protocol::AnthropicMessages, &body).unwrap();
@@ -473,10 +540,79 @@ mod tests {
 
         // thinking is in known fields, silently dropped
         assert!(!canonical.unmapped.contains(&"thinking".to_string()));
+        // context_management is treated as known passthrough metadata
+        assert!(!canonical
+            .unmapped
+            .contains(&"context_management".to_string()));
         // weird_custom_field is unknown
         assert!(canonical
             .unmapped
             .contains(&"weird_custom_field".to_string()));
+    }
+
+    #[test]
+    fn test_convert_request_preserves_context_management_anthropic_to_responses() {
+        let body = serde_json::json!({
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hi"}],
+            "context_management": {"edits": [{"type":"clear_function_results"}]}
+        });
+
+        let converted = convert_request(Protocol::AnthropicMessages, Protocol::Responses, &body)
+            .expect("conversion failed");
+
+        assert_eq!(
+            converted.get("context_management"),
+            Some(&serde_json::json!([{"type":"clear_function_results"}]))
+        );
+    }
+
+    #[test]
+    fn test_convert_request_wraps_object_context_management_for_responses() {
+        let body = serde_json::json!({
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hi"}],
+            "context_management": {"type":"compact_20260112"}
+        });
+
+        let converted = convert_request(Protocol::AnthropicMessages, Protocol::Responses, &body)
+            .expect("conversion failed");
+
+        assert_eq!(converted.get("context_management"), None);
+    }
+
+    #[test]
+    fn test_convert_request_drops_unsupported_context_management_keep_shape() {
+        let body = serde_json::json!({
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hi"}],
+            "context_management": {"keep":{"last_messages": 2}}
+        });
+
+        let converted = convert_request(Protocol::AnthropicMessages, Protocol::Responses, &body)
+            .expect("conversion failed");
+
+        assert!(converted.get("context_management").is_none());
+    }
+
+    #[test]
+    fn test_convert_request_filters_context_management_array_items_without_type() {
+        let body = serde_json::json!({
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hi"}],
+            "context_management": [
+                {"keep":{"last_messages":2}},
+                {"type":"clear_function_results"}
+            ]
+        });
+
+        let converted = convert_request(Protocol::AnthropicMessages, Protocol::Responses, &body)
+            .expect("conversion failed");
+
+        assert_eq!(
+            converted.get("context_management"),
+            Some(&serde_json::json!([{"type":"clear_function_results"}]))
+        );
     }
 
     #[test]

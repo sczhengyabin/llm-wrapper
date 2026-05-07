@@ -540,19 +540,10 @@ fn ensure_codex_responses_requirements(body: &mut serde_json::Value) {
         map.remove("max_output_tokens");
         // Codex 不支持 parallel_tool_calls
         map.remove("parallel_tool_calls");
-        // 适配 Claude Code：当提供了 tools 但未指定 tool_choice 时，强制 required，
-        // 避免模型“计划使用工具”却直接以 end_turn 结束。
-        let has_tools = map
-            .get("tools")
-            .and_then(|v| v.as_array())
-            .map(|arr| !arr.is_empty())
-            .unwrap_or(false);
-        if has_tools && !map.contains_key("tool_choice") {
-            map.insert(
-                "tool_choice".to_string(),
-                serde_json::Value::String("required".to_string()),
-            );
-        }
+        // Claude Code 的 context_management 形态与 Codex 不兼容，透传会触发 400。
+        map.remove("context_management");
+        // 不注入默认 tool_choice。
+        // 若上游请求已携带 tool_choice（如 auto/required），保持原值。
         // Codex 的 input 内容块不支持 input_text，需替换为 output_text
         if let Some(input) = map.get_mut("input") {
             sanitize_codex_function_call_fields(input);
@@ -695,7 +686,8 @@ mod tests {
             "instructions": "You are helpful",
             "store": true,
             "max_output_tokens": 4096,
-            "parallel_tool_calls": false
+            "parallel_tool_calls": false,
+            "context_management": [{"keep":{"last_messages":2}}]
         });
         ensure_codex_responses_requirements(&mut body);
         assert_eq!(body["instructions"], serde_json::json!("You are helpful"));
@@ -706,6 +698,7 @@ mod tests {
             .as_object()
             .unwrap()
             .contains_key("parallel_tool_calls"));
+        assert!(!body.as_object().unwrap().contains_key("context_management"));
     }
 
     #[test]
@@ -790,7 +783,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ensure_codex_responses_defaults_tool_choice_required_when_tools_present() {
+    fn test_ensure_codex_responses_does_not_inject_tool_choice_when_absent() {
         let mut body = serde_json::json!({
             "model": "gpt-5.5",
             "tools": [
@@ -809,7 +802,7 @@ mod tests {
             ]
         });
         ensure_codex_responses_requirements(&mut body);
-        assert_eq!(body["tool_choice"], "required");
+        assert!(body.get("tool_choice").is_none());
     }
 
     #[test]

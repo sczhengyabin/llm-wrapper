@@ -526,9 +526,7 @@ async fn handle_streaming_conversion(
             let raw_stream = response
                 .bytes_stream()
                 .map(|result: Result<_, reqwest::Error>| {
-                    result
-                        .map(Vec::from)
-                        .map_err(std::io::Error::other)
+                    result.map(Vec::from).map_err(std::io::Error::other)
                 });
 
             let converted_stream = convert_stream_sse(target_protocol, entry_protocol, raw_stream);

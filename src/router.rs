@@ -42,7 +42,9 @@ impl RouteResult {
 
     /// 根据入口协议的选择优先级，返回上游支持的最佳协议
     pub fn best_available_protocol(&self, entry: Protocol) -> Option<Protocol> {
-        Protocol::selection_priority(entry).into_iter().find(|&p| self.supports(p))
+        Protocol::selection_priority(entry)
+            .into_iter()
+            .find(|&p| self.supports(p))
     }
 
     /// 获取指定协议的有效 base URL

@@ -601,6 +601,92 @@ fn build_responses_output_from_aggregated(
     output
 }
 
+fn output_has_non_empty_text(output: &[serde_json::Value]) -> bool {
+    for item in output {
+        let item_type = item.get("type").and_then(|t| t.as_str());
+        match item_type {
+            Some("message") => {
+                if let Some(content) = item.get("content").and_then(|c| c.as_array()) {
+                    for block in content {
+                        let block_type = block.get("type").and_then(|t| t.as_str());
+                        if matches!(
+                            block_type,
+                            Some("output_text") | Some("text") | Some("input_text")
+                        ) {
+                            if block
+                                .get("text")
+                                .and_then(|t| t.as_str())
+                                .is_some_and(|t| !t.is_empty())
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            Some("output_text") | Some("text") | Some("input_text") => {
+                if item
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .is_some_and(|t| !t.is_empty())
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn output_has_non_empty_reasoning(output: &[serde_json::Value]) -> bool {
+    for item in output {
+        let item_type = item.get("type").and_then(|t| t.as_str());
+        if item_type == Some("reasoning") {
+            if let Some(summary) = item.get("summary").and_then(|s| s.as_array()) {
+                for block in summary {
+                    let block_type = block.get("type").and_then(|t| t.as_str());
+                    if matches!(block_type, Some("reasoning_text") | Some("summary_text")) {
+                        if block
+                            .get("text")
+                            .and_then(|t| t.as_str())
+                            .is_some_and(|t| !t.is_empty())
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if let Some(content) = item.get("content").and_then(|c| c.as_array()) {
+                for block in content {
+                    let block_type = block.get("type").and_then(|t| t.as_str());
+                    if matches!(block_type, Some("reasoning_text") | Some("summary_text")) {
+                        if block
+                            .get("text")
+                            .and_then(|t| t.as_str())
+                            .is_some_and(|t| !t.is_empty())
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn output_has_function_call(output: &[serde_json::Value], call_id: &str) -> bool {
+    output.iter().any(|item| {
+        item.get("type").and_then(|t| t.as_str()) == Some("function_call")
+            && item
+                .get("call_id")
+                .or_else(|| item.get("id"))
+                .and_then(|v| v.as_str())
+                == Some(call_id)
+    })
+}
+
 /// 将 Responses SSE 流聚合为单个 Responses JSON（用于上游强制 stream=true 的场景）
 ///
 /// 主要用于 Codex 上游：客户端请求非流式时，上游仍返回 SSE，
@@ -609,10 +695,9 @@ pub async fn drain_responses_sse_to_json(
     response: reqwest::Response,
     fallback_model: Option<&str>,
 ) -> std::result::Result<serde_json::Value, String> {
-    let stream = response.bytes_stream().map(|item| {
-        item.map(Vec::from)
-            .map_err(std::io::Error::other)
-    });
+    let stream = response
+        .bytes_stream()
+        .map(|item| item.map(Vec::from).map_err(std::io::Error::other));
     drain_responses_sse_bytes(stream, fallback_model).await
 }
 
@@ -822,6 +907,30 @@ where
                         &tool_calls
                     )),
                 );
+            } else if let Some(output) = obj.get_mut("output").and_then(|v| v.as_array_mut()) {
+                if !reasoning_out.is_empty() && !output_has_non_empty_reasoning(output) {
+                    output.push(serde_json::json!({
+                        "type": "reasoning",
+                        "summary": [{"type": "reasoning_text", "text": reasoning_out}]
+                    }));
+                }
+                if !text_out.is_empty() && !output_has_non_empty_text(output) {
+                    output.push(serde_json::json!({
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": text_out}]
+                    }));
+                }
+                for tool in tool_calls.values() {
+                    if !output_has_function_call(output, &tool.id) {
+                        output.push(serde_json::json!({
+                            "type": "function_call",
+                            "call_id": tool.id,
+                            "name": tool.name,
+                            "arguments": if tool.args.is_empty() { "{}" } else { &tool.args },
+                        }));
+                    }
+                }
             }
             if !obj.contains_key("usage") {
                 if let Some(u) = usage.clone() {
@@ -1054,7 +1163,9 @@ pub fn parse_responses_event(
                 });
             }
             let mut has_function_call = false;
+            let mut has_visible_text = false;
             if let Some(output) = response.get("output").and_then(|o| o.as_array()) {
+                has_visible_text = output_has_non_empty_text(output);
                 for item in output {
                     if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
                         has_function_call = true;
@@ -1068,7 +1179,10 @@ pub fn parse_responses_event(
                     }
                 }
             }
-            if has_function_call && stop_reason == Some(CanonicalStopReason::EndTurn) {
+            if has_function_call
+                && !has_visible_text
+                && stop_reason == Some(CanonicalStopReason::EndTurn)
+            {
                 stop_reason = Some(CanonicalStopReason::ToolUse);
             }
 
@@ -1302,6 +1416,7 @@ pub fn canonical_to_anthropic_sse(event: &CanonicalStreamEvent) -> Result<String
 pub struct AnthropicSseWrapper {
     sent_message_start: bool,
     sent_content_start: bool,
+    current_block_open: bool,
     last_index: u64,
     stopped: bool,
     saw_tool_use: bool,
@@ -1355,8 +1470,17 @@ impl AnthropicSseWrapper {
             } => {
                 self.saw_tool_use = true;
                 let mut outputs = Vec::new();
+                if self.current_block_open {
+                    self.emit_content_block_stop(&mut outputs)?;
+                }
                 self.emit_message_start_if_needed(&mut outputs)?;
-                let idx = index.unwrap_or(0);
+                let idx = index.unwrap_or_else(|| {
+                    if self.sent_content_start {
+                        self.last_index + 1
+                    } else {
+                        0
+                    }
+                });
                 outputs.push(format!(
                     "event: content_block_start\ndata: {}\n\n",
                     serde_json::to_string(&serde_json::json!({
@@ -1372,6 +1496,7 @@ impl AnthropicSseWrapper {
                     .map_err(|e| anyhow::anyhow!(e))?
                 ));
                 self.sent_content_start = true;
+                self.current_block_open = true;
                 self.last_index = idx;
                 Ok(outputs)
             }
@@ -1383,7 +1508,7 @@ impl AnthropicSseWrapper {
                     "event: content_block_delta\ndata: {}\n\n",
                     serde_json::to_string(&serde_json::json!({
                         "type": "content_block_delta",
-                        "index": index.unwrap_or(0),
+                        "index": index.unwrap_or(self.last_index),
                         "delta": {
                             "type": "input_json_delta",
                             "partial_json": input_chunk
@@ -1406,40 +1531,32 @@ impl AnthropicSseWrapper {
                     CanonicalStopReason::MaxTokens => "max_tokens",
                     CanonicalStopReason::ToolUse => "tool_use",
                 };
-                Ok(vec![
-                    // content_block_stop 必须在 message_delta 之前
-                    format!(
-                        "event: content_block_stop\ndata: {}\n\n",
-                        serde_json::to_string(&serde_json::json!({
-                            "type": "content_block_stop",
-                            "index": self.last_index
-                        }))
-                        .map_err(|e| anyhow::anyhow!(e))?
-                    ),
-                    // message_delta
-                    format!(
-                        "event: message_delta\ndata: {}\n\n",
-                        serde_json::to_string(&serde_json::json!({
-                            "type": "message_delta",
-                            "delta": {
-                                "stop_reason": stop_reason,
-                                "stop_sequence": null
-                            },
-                            "usage": {
-                                "output_tokens": 0
-                            }
-                        }))
-                        .map_err(|e| anyhow::anyhow!(e))?
-                    ),
-                    // message_stop
-                    format!(
-                        "event: message_stop\ndata: {}\n\n",
-                        serde_json::to_string(&serde_json::json!({
-                            "type": "message_stop"
-                        }))
-                        .map_err(|e| anyhow::anyhow!(e))?
-                    ),
-                ])
+                let mut outputs = Vec::new();
+                if self.current_block_open {
+                    self.emit_content_block_stop(&mut outputs)?;
+                }
+                outputs.push(format!(
+                    "event: message_delta\ndata: {}\n\n",
+                    serde_json::to_string(&serde_json::json!({
+                        "type": "message_delta",
+                        "delta": {
+                            "stop_reason": stop_reason,
+                            "stop_sequence": null
+                        },
+                        "usage": {
+                            "output_tokens": 0
+                        }
+                    }))
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ));
+                outputs.push(format!(
+                    "event: message_stop\ndata: {}\n\n",
+                    serde_json::to_string(&serde_json::json!({
+                        "type": "message_stop"
+                    }))
+                    .map_err(|e| anyhow::anyhow!(e))?
+                ));
+                Ok(outputs)
             }
             CanonicalStreamEvent::Usage { .. } => Ok(Vec::new()),
             _ => Ok(Vec::new()),
@@ -1466,8 +1583,22 @@ impl AnthropicSseWrapper {
                 .map_err(|e| anyhow::anyhow!(e))?
             ));
             self.sent_content_start = true;
+            self.current_block_open = true;
             self.last_index = index;
         }
+        Ok(())
+    }
+
+    fn emit_content_block_stop(&mut self, outputs: &mut Vec<String>) -> Result<()> {
+        outputs.push(format!(
+            "event: content_block_stop\ndata: {}\n\n",
+            serde_json::to_string(&serde_json::json!({
+                "type": "content_block_stop",
+                "index": self.last_index
+            }))
+            .map_err(|e| anyhow::anyhow!(e))?
+        ));
+        self.current_block_open = false;
         Ok(())
     }
 
@@ -1723,6 +1854,47 @@ mod tests {
         let delta_out = canonical_to_anthropic_sse(&delta).unwrap();
         assert!(delta_out.contains("content_block_delta"));
         assert!(delta_out.contains("\"type\":\"input_json_delta\""));
+    }
+
+    #[test]
+    fn test_anthropic_wrapper_closes_text_block_before_tool_block() {
+        let mut wrapper = AnthropicSseWrapper::new();
+
+        let text = wrapper
+            .convert(&CanonicalStreamEvent::TextDelta {
+                text: "I will inspect this.".to_string(),
+            })
+            .unwrap()
+            .join("");
+        assert!(text.contains("\"type\":\"content_block_start\""));
+        assert!(text.contains("\"type\":\"text\""));
+        assert!(text.contains("\"index\":0"));
+
+        let tool = wrapper
+            .convert(&CanonicalStreamEvent::ToolUseStart {
+                id: "call_1".to_string(),
+                index: None,
+                name: "list_files".to_string(),
+                input: serde_json::json!({}),
+            })
+            .unwrap()
+            .join("");
+
+        let stop_pos = tool.find("\"type\":\"content_block_stop\"").unwrap();
+        let tool_start_pos = tool.find("\"type\":\"tool_use\"").unwrap();
+        assert!(stop_pos < tool_start_pos);
+        assert!(tool.contains("\"index\":0"));
+        assert!(tool.contains("\"index\":1"));
+
+        let stop = wrapper
+            .convert(&CanonicalStreamEvent::Stop {
+                reason: CanonicalStopReason::ToolUse,
+            })
+            .unwrap()
+            .join("");
+        assert!(stop.contains("\"type\":\"content_block_stop\""));
+        assert!(stop.contains("\"index\":1"));
+        assert!(stop.contains("\"stop_reason\":\"tool_use\""));
     }
 
     #[test]
@@ -2188,6 +2360,37 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_responses_event_completed_with_function_call_and_text_is_end_turn() {
+        let json = serde_json::json!({
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "hello_tool",
+                        "arguments": "{\"name\":\"world\"}"
+                    },
+                    {
+                        "type": "message",
+                        "content": [
+                            {"type":"output_text","text":"done"}
+                        ]
+                    }
+                ]
+            }
+        });
+        let event = parse_responses_event(&json).unwrap();
+        match event {
+            Some(CanonicalStreamEvent::Stop { reason }) => {
+                assert_eq!(reason, CanonicalStopReason::EndTurn);
+            }
+            _ => panic!("expected Some(Stop)"),
+        }
+    }
+
+    #[test]
     fn test_parse_responses_event_output_item_done_ignored() {
         let json = serde_json::json!({
             "type": "response.output_item.done",
@@ -2414,5 +2617,54 @@ data: {"type":"response.failed","response":{"error":{"message":"boom"}}}
         .await
         .unwrap_err();
         assert!(err.contains("boom"));
+    }
+
+    #[tokio::test]
+    async fn test_drain_responses_sse_completed_output_backfills_missing_text_from_delta() {
+        let completed = serde_json::json!({
+            "id": "resp_backfill",
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {"type":"function_call","call_id":"c1","name":"search","arguments":"{\"q\":\"x\"}"}
+            ],
+            "usage": {"input_tokens": 3, "output_tokens": 1}
+        });
+        let chunks = vec![
+            br#"event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"hello"}
+
+"#
+            .to_vec(),
+            format!(
+                "event: response.completed\ndata: {}\n\n",
+                serde_json::json!({"type":"response.completed","response": completed})
+            )
+            .into_bytes(),
+        ];
+
+        let out = drain_responses_sse_bytes(
+            futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>)),
+            Some("gpt-5.5"),
+        )
+        .await
+        .unwrap();
+
+        let output = out["output"].as_array().unwrap();
+        assert!(output
+            .iter()
+            .any(|item| item.get("type").and_then(|v| v.as_str()) == Some("function_call")));
+        assert!(output.iter().any(|item| {
+            item.get("type").and_then(|v| v.as_str()) == Some("message")
+                && item
+                    .get("content")
+                    .and_then(|c| c.as_array())
+                    .is_some_and(|blocks| {
+                        blocks.iter().any(|b| {
+                            b.get("type").and_then(|v| v.as_str()) == Some("output_text")
+                                && b.get("text").and_then(|v| v.as_str()) == Some("hello")
+                        })
+                    })
+        }));
     }
 }

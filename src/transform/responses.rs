@@ -52,6 +52,17 @@ fn parse_reasoning_effort(body: &serde_json::Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn extract_block_text(block: &serde_json::Value) -> Option<String> {
+    for key in ["text", "value", "output_text"] {
+        if let Some(text) = block.get(key).and_then(|t| t.as_str()) {
+            if !text.is_empty() {
+                return Some(text.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// 解析 Responses API 的 input content block 为 CanonicalContentBlock
 #[allow(unused_variables)]
 fn parse_responses_content_block(block: &serde_json::Value) -> Option<CanonicalContentBlock> {
@@ -59,28 +70,10 @@ fn parse_responses_content_block(block: &serde_json::Value) -> Option<CanonicalC
 
     match block_type {
         "text" | "input_text" | "output_text" => {
-            let text = block
-                .get("text")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            if text.is_empty() {
-                None
-            } else {
-                Some(CanonicalContentBlock::Text { text })
-            }
+            extract_block_text(block).map(|text| CanonicalContentBlock::Text { text })
         }
         "reasoning_text" | "summary_text" => {
-            let text = block
-                .get("text")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            if text.is_empty() {
-                None
-            } else {
-                Some(CanonicalContentBlock::Reasoning { text })
-            }
+            extract_block_text(block).map(|text| CanonicalContentBlock::Reasoning { text })
         }
         "image_url" => {
             let image_url = block
@@ -585,6 +578,7 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
     // Parse output items into content blocks
     let mut content: Vec<CanonicalContentBlock> = vec![];
     let mut has_function_call_output = false;
+    let mut has_visible_text_output = false;
 
     if let Some(output) = body.get("output").and_then(|o| o.as_array()) {
         for item in output {
@@ -592,12 +586,32 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
 
             match item_type {
                 "message" => {
-                    if let Some(content_arr) = item.get("content").and_then(|c| c.as_array()) {
-                        for block in content_arr {
-                            if let Some(parsed) = parse_responses_content_block(block) {
-                                content.push(parsed);
+                    if let Some(content_val) = item.get("content") {
+                        if let Some(content_arr) = content_val.as_array() {
+                            for block in content_arr {
+                                if let Some(parsed) = parse_responses_content_block(block) {
+                                    if matches!(parsed, CanonicalContentBlock::Text { .. }) {
+                                        has_visible_text_output = true;
+                                    }
+                                    content.push(parsed);
+                                }
+                            }
+                        } else if let Some(text) = content_val.as_str() {
+                            if !text.is_empty() {
+                                has_visible_text_output = true;
+                                content.push(CanonicalContentBlock::Text {
+                                    text: text.to_string(),
+                                });
                             }
                         }
+                    }
+                }
+                "output_text" | "text" => {
+                    if let Some(parsed) = parse_responses_content_block(item) {
+                        if matches!(parsed, CanonicalContentBlock::Text { .. }) {
+                            has_visible_text_output = true;
+                        }
+                        content.push(parsed);
                     }
                 }
                 "function_call" => {
@@ -673,7 +687,9 @@ pub fn to_canonical_response(body: &serde_json::Value) -> Result<CanonicalRespon
     } else {
         match stop_reason_str {
             "end_turn" => Some(CanonicalStopReason::EndTurn),
-            "" if has_function_call_output => Some(CanonicalStopReason::ToolUse),
+            "" if has_function_call_output && !has_visible_text_output => {
+                Some(CanonicalStopReason::ToolUse)
+            }
             "" => Some(CanonicalStopReason::EndTurn),
             "max_output_tokens" | "max_tokens" => Some(CanonicalStopReason::MaxTokens),
             "stop_sequence" => Some(CanonicalStopReason::StopSequence),
@@ -1136,6 +1152,28 @@ mod tests {
     }
 
     #[test]
+    fn test_to_canonical_response_supports_top_level_output_text_item() {
+        let body = json!({
+            "id": "resp_top_level_text",
+            "model": "gpt-5",
+            "output": [
+                {
+                    "type": "output_text",
+                    "text": "hello from top level"
+                }
+            ],
+            "status": "completed"
+        });
+
+        let resp = to_canonical_response(&body).unwrap();
+        assert_eq!(resp.content.len(), 1);
+        assert!(matches!(
+            &resp.content[0],
+            CanonicalContentBlock::Text { text } if text == "hello from top level"
+        ));
+    }
+
+    #[test]
     fn test_to_canonical_response_with_function_call() {
         let body = json!({
             "id": "resp_456",
@@ -1415,6 +1453,31 @@ mod tests {
         });
         let resp = to_canonical_response(&body).unwrap();
         assert_eq!(resp.stop_reason, Some(CanonicalStopReason::ToolUse));
+    }
+
+    #[test]
+    fn test_stop_reason_with_text_and_function_call_defaults_to_end_turn() {
+        let body = json!({
+            "id": "r_tool_text",
+            "model": "gpt-4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "echo_tool",
+                    "arguments": "{\"text\":\"hi\"}"
+                },
+                {
+                    "type": "message",
+                    "content": [
+                        {"type":"output_text","text":"Tool done."}
+                    ]
+                }
+            ]
+        });
+        let resp = to_canonical_response(&body).unwrap();
+        assert_eq!(resp.stop_reason, Some(CanonicalStopReason::EndTurn));
     }
 
     #[test]
