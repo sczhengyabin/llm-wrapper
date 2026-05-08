@@ -1,6 +1,5 @@
 use crate::config::ConfigManager;
-use crate::models::{ApiType, ModelAlias, OverrideMode, UpstreamAuth};
-use crate::transform::Protocol;
+use crate::models::{ModelAlias, OverrideMode, UpstreamAuth};
 use std::collections::HashMap;
 
 /// 路由信息，包含选中的上游和需要应用的参数覆盖
@@ -12,51 +11,18 @@ pub struct RouteResult {
     pub upstream_name: String,
     /// 上游认证配置
     pub upstream_auth: UpstreamAuth,
-    /// API 类型
-    pub api_type: ApiType,
     /// 实际要使用的模型名称
     pub target_model: String,
     /// 需要强制覆盖的参数（override 模式）
     pub override_params: HashMap<String, serde_json::Value>,
     /// 需要作为默认值的参数（default 模式）
     pub default_params: HashMap<String, serde_json::Value>,
-    /// 是否支持 Chat Completions 协议
-    pub support_chat_completions: bool,
-    /// 是否支持 Responses 协议
-    pub support_responses: bool,
-    /// 是否支持 Anthropic Messages 协议
-    pub support_anthropic_messages: bool,
-    /// Anthropic 协议独立的 base URL（留空则使用 upstream_base_url）
-    pub anthropic_base_url: Option<String>,
-}
-
-impl RouteResult {
-    /// 检查是否支持指定协议
-    pub fn supports(&self, protocol: Protocol) -> bool {
-        match protocol {
-            Protocol::ChatCompletions => self.support_chat_completions,
-            Protocol::Responses => self.support_responses,
-            Protocol::AnthropicMessages => self.support_anthropic_messages,
-        }
-    }
-
-    /// 根据入口协议的选择优先级，返回上游支持的最佳协议
-    pub fn best_available_protocol(&self, entry: Protocol) -> Option<Protocol> {
-        Protocol::selection_priority(entry)
-            .into_iter()
-            .find(|&p| self.supports(p))
-    }
-
-    /// 获取指定协议的有效 base URL
-    pub fn effective_base_url(&self, protocol: Protocol) -> &str {
-        if protocol == Protocol::AnthropicMessages {
-            return self
-                .anthropic_base_url
-                .as_ref()
-                .unwrap_or(&self.upstream_base_url);
-        }
-        &self.upstream_base_url
-    }
+    /// 是否通过 CLIProxyAPI 代理
+    pub use_cli_proxy_api: bool,
+    /// CLIProxyAPI 端点地址
+    pub cli_proxy_api_endpoint: String,
+    /// CLIProxyAPI API key
+    pub cli_proxy_api_api_key: Option<String>,
 }
 
 /// 路由器，处理模型到上游的映射
@@ -79,25 +45,23 @@ impl ModelRouter {
         }
 
         // 如果没有找到别名，尝试直接使用 model 作为 upstream name
-        // 这允许用户直接通过 upstream name 来路由
         if let Some(upstream) = config
             .upstreams
             .iter()
             .find(|u| u.name == model)
             .filter(|u| u.enabled)
         {
+            let use_cli_proxy_api = upstream.auth.is_cli_proxy_api();
             return Some(RouteResult {
                 upstream_base_url: upstream.base_url.clone(),
                 upstream_name: upstream.name.clone(),
                 upstream_auth: upstream.auth.clone(),
-                api_type: upstream.api_type.clone(),
                 target_model: model.to_string(),
                 override_params: HashMap::new(),
                 default_params: HashMap::new(),
-                support_chat_completions: upstream.support_chat_completions,
-                support_responses: upstream.support_responses,
-                support_anthropic_messages: upstream.support_anthropic_messages,
-                anthropic_base_url: upstream.anthropic_base_url.clone(),
+                use_cli_proxy_api,
+                cli_proxy_api_endpoint: config.cli_proxy_api_endpoint.clone(),
+                cli_proxy_api_api_key: config.cli_proxy_api_api_key.clone(),
             });
         }
 
@@ -118,7 +82,6 @@ impl ModelRouter {
         let mut override_params = HashMap::new();
         let mut default_params = HashMap::new();
 
-        // 处理参数覆盖
         for param_override in &alias.param_overrides {
             match param_override.mode {
                 OverrideMode::Override => {
@@ -131,18 +94,17 @@ impl ModelRouter {
             }
         }
 
+        let use_cli_proxy_api = upstream.auth.is_cli_proxy_api();
         Some(RouteResult {
             upstream_base_url: upstream.base_url.clone(),
             upstream_name: upstream.name.clone(),
             upstream_auth: upstream.auth.clone(),
-            api_type: upstream.api_type.clone(),
             target_model: alias.target_model.clone(),
             override_params,
             default_params,
-            support_chat_completions: upstream.support_chat_completions,
-            support_responses: upstream.support_responses,
-            support_anthropic_messages: upstream.support_anthropic_messages,
-            anthropic_base_url: upstream.anthropic_base_url.clone(),
+            use_cli_proxy_api,
+            cli_proxy_api_endpoint: config.cli_proxy_api_endpoint.clone(),
+            cli_proxy_api_api_key: config.cli_proxy_api_api_key.clone(),
         })
     }
 

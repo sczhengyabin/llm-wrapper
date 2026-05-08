@@ -8,8 +8,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+      - "8317:8317"  # auth2api (如使用独立部署模式)
     volumes:
       - ./config:/app/config
+      - ./auth2api:/app/auth2api  # auth2api 项目目录
+      - llm-wrapper-data:/app/.llm-wrapper  # token 缓存
     environment:
       - BIND_ADDR=0.0.0.0:3000
       - CONFIG_PATH=/app/config/config.yaml
@@ -20,3 +23,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  llm-wrapper-data:

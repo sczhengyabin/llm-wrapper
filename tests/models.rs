@@ -200,21 +200,3 @@ fn test_old_support_openai_json_migration() {
     assert_eq!(config.upstreams[0].support_anthropic_messages, true);
 }
 
-#[test]
-fn test_codex_forces_responses_json() {
-    let json = r#"{
-        "upstreams": [{
-            "name": "codex",
-            "base_url": "https://chatgpt.com/backend-api",
-            "api_type": "chatgpt_codex",
-            "enabled": true,
-            "support_chat_completions": true,
-            "support_anthropic_messages": true
-        }]
-    }"#;
-    let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
-    // Codex 强制只支持 responses
-    assert_eq!(config.upstreams[0].support_chat_completions, false);
-    assert_eq!(config.upstreams[0].support_responses, true);
-    assert_eq!(config.upstreams[0].support_anthropic_messages, false);
-}

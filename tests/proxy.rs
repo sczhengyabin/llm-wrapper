@@ -13,14 +13,12 @@ fn create_test_route(
         upstream_auth: UpstreamAuth::ApiKey {
             key: Some("test-key".to_string()),
         },
-        api_type: llm_wrapper::models::ApiType::OpenAI,
         target_model: "gpt-4-turbo".to_string(),
         override_params,
         default_params,
-        support_chat_completions: true,
-        support_responses: true,
-        support_anthropic_messages: false,
-        anthropic_base_url: None,
+        use_cli_proxy_api: false,
+        cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
+        cli_proxy_api_api_key: None,
     }
 }
 

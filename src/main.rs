@@ -3,11 +3,13 @@ use llm_wrapper::models;
 use llm_wrapper::oauth::AuthManager;
 use llm_wrapper::proxy;
 use llm_wrapper::router;
-use llm_wrapper::transform::Protocol;
 
 use llm_wrapper::models::{ModelAliasSource, UpstreamAuth};
-use llm_wrapper::proxy::{apply_param_overrides_inner, DebugInfo};
+use llm_wrapper::proxy::DebugInfo;
 use serde_json::json;
+
+mod cli_proxy_api_manager;
+mod cli_proxy_api_proxy;
 
 use actix_cors::Cors;
 use actix_files as fs;
@@ -18,14 +20,16 @@ use models::AppConfig;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+#[allow(dead_code)]
 struct AppState {
     config: ConfigManager,
     auth_manager: AuthManager,
     debug_data: web::Data<DebugDataStore>,
     stream_hub: web::Data<DebugStreamHub>,
+    cli_proxy_api_manager: Option<Arc<cli_proxy_api_manager::CliProxyApiManager>>,
 }
 
 /// 调试数据存储
@@ -97,6 +101,44 @@ async fn main() -> std::io::Result<()> {
     let auth_manager = AuthManager::new(Some(&cache_dir));
     auth_manager.load_cache().await;
 
+    // 检查是否需要启动 CLIProxyAPI
+    let cli_proxy_api_manager = {
+        let config_snapshot = config_manager.get_config().await;
+        let needs_cli_proxy_api = config_snapshot
+            .upstreams
+            .iter()
+            .any(|u| u.enabled && u.auth.is_cli_proxy_api());
+
+        if needs_cli_proxy_api {
+            let cli_proxy_api_dir = std::path::Path::new(&config_path)
+                .parent()
+                .map(|p| p.join("cli-proxy-api"))
+                .unwrap_or_else(|| std::path::PathBuf::from("cli-proxy-api"));
+
+            let manager = cli_proxy_api_manager::CliProxyApiManager::new(
+                cli_proxy_api_dir.clone(),
+                config_snapshot.cli_proxy_api_endpoint.clone(),
+            );
+
+            let mgr = Arc::new(manager);
+            // Spawn monitor task for crash recovery (always, even if not started yet)
+            mgr.clone().spawn_monitor();
+
+            // Only start CLIProxyAPI process if accounts already exist
+            if mgr.has_accounts().await {
+                if let Err(e) = mgr.start().await {
+                    warn!("Failed to start CLIProxyAPI: {}. CLIProxyAPI upstreams will be unavailable.", e);
+                }
+            } else {
+                info!("No CLIProxyAPI accounts found. Login via WebUI to add an account.");
+            }
+
+            Some(mgr)
+        } else {
+            None
+        }
+    };
+
     let debug_store = web::Data::new(DebugDataStore::default());
     let stream_hub = web::Data::new(DebugStreamHub::new());
     let state = web::Data::new(AppState {
@@ -104,6 +146,7 @@ async fn main() -> std::io::Result<()> {
         auth_manager,
         debug_data: debug_store.clone(),
         stream_hub: stream_hub.clone(),
+        cli_proxy_api_manager,
     });
 
     // 启动服务器
@@ -137,14 +180,26 @@ async fn main() -> std::io::Result<()> {
                 web::post().to(auth_login),
             )
             .route(
-                "/api/auth/status/{upstream_name}",
-                web::get().to(auth_status),
-            )
-            .route(
                 "/api/auth/token/{upstream_name}",
                 web::delete().to(auth_clear_token),
             )
-            .route("/api/auth/login-stream", web::get().to(auth_login_stream))
+            // CLIProxyAPI 认证 API
+            .route(
+                "/api/cli-proxy-api/login/{upstream_name}",
+                web::post().to(cli_proxy_api_login),
+            )
+            .route(
+                "/api/cli-proxy-api/complete-login/{upstream_name}",
+                web::post().to(cli_proxy_api_complete_login),
+            )
+            .route(
+                "/api/cli-proxy-api/login-stream/{upstream_name}",
+                web::get().to(cli_proxy_api_login_stream),
+            )
+            .route(
+                "/api/cli-proxy-api/status",
+                web::get().to(cli_proxy_api_status),
+            )
             .route("/api/debug", web::get().to(get_debug_data))
             .route("/api/debug", web::delete().to(clear_debug_data))
             .route("/api/debug/stream", web::get().to(debug_stream))
@@ -185,8 +240,6 @@ async fn chat_completions(
         state,
         body.into_inner(),
         req,
-        Protocol::ChatCompletions,
-        "Chat Completions",
         "/v1/chat/completions",
     )
     .await
@@ -201,8 +254,6 @@ async fn responses(
         state,
         body.into_inner(),
         req,
-        Protocol::Responses,
-        "Responses",
         "/v1/responses",
     )
     .await
@@ -217,27 +268,22 @@ async fn messages(
         state,
         body.into_inner(),
         req,
-        Protocol::AnthropicMessages,
-        "Anthropic Messages",
         "/v1/messages",
     )
     .await
 }
 
 /// 通用的协议请求处理器
-/// 支持直接转发和协议转换两种模式
+/// CLIProxyAPI 上游转发到 CLIProxyAPI，其他上游直接代理
 async fn handle_protocol_request(
     state: web::Data<AppState>,
     body: serde_json::Value,
     req: actix_web::HttpRequest,
-    entry_protocol: Protocol,
-    protocol_name: &str,
     endpoint_path: &str,
 ) -> HttpResponse {
     use proxy::Proxy;
     use router::ModelRouter;
 
-    // 检查是否启用调试模式
     let debug_mode = req
         .headers()
         .get("X-Debug-Mode")
@@ -245,7 +291,6 @@ async fn handle_protocol_request(
         .map(|v| v == "true")
         .unwrap_or(false);
 
-    // 获取模型名
     let model = match body.get("model").and_then(|m| m.as_str()) {
         Some(m) => m.to_string(),
         None => {
@@ -257,7 +302,6 @@ async fn handle_protocol_request(
     let router = ModelRouter::new(state.config.clone());
     let proxy = Proxy::new(state.auth_manager.clone());
 
-    // 查找路由
     let route = match router.route(&model).await {
         Some(r) => r,
         None => {
@@ -266,81 +310,40 @@ async fn handle_protocol_request(
         }
     };
 
-    // 确定是否需要协议转换
-    let needs_conversion = !route.supports(entry_protocol);
-    let target_protocol = if needs_conversion {
-        let config_snapshot = state.config.get_config().await;
-        if !config_snapshot.allow_protocol_conversion {
-            return HttpResponse::UnprocessableEntity().json(json!({
-                "error": {"message": format!("该上游不支持 {0} 协议", protocol_name)}
-            }));
-        }
-        match route.best_available_protocol(entry_protocol) {
-            Some(p) => p,
+    // CLIProxyAPI 代理：如果上游使用 CLIProxyAPI 管理的认证，直接转发请求
+    if route.use_cli_proxy_api {
+        let manager = match &state.cli_proxy_api_manager {
+            Some(m) => m,
             None => {
-                return HttpResponse::UnprocessableEntity().json(json!({
-                    "error": {"message": "该上游不支持任何可用协议"}
-                }))
+                return HttpResponse::BadGateway().json(json!({
+                    "error": {"message": "CLIProxyAPI is not configured"}
+                }));
+            }
+        };
+
+        // Lazy start: if CLIProxyAPI is not running, try to start it
+        if !manager.is_running().await {
+            info!("CLIProxyAPI not running, attempting lazy start...");
+            if let Err(e) = manager.start().await {
+                return HttpResponse::BadGateway().json(json!({
+                    "error": {"message": format!("CLIProxyAPI is not running: {}. Please login first via the WebUI.", e)}
+                }));
             }
         }
-    } else {
-        entry_protocol
-    };
 
-    // 如果需要转换，先应用 alias 参数覆盖（在客户端协议字段名下），再转换
-    let body_for_conversion = if needs_conversion {
-        let mut b = body.clone();
-        apply_param_overrides_inner(&mut b, &route);
-        b
-    } else {
-        body.clone()
-    };
-
-    // 协议转换（不含图片下载）
-    let mut upstream_body = if needs_conversion {
-        match llm_wrapper::transform::convert_request(
-            entry_protocol,
-            target_protocol,
-            &body_for_conversion,
-        ) {
-            Ok(b) => b,
-            Err(e) => {
-                return HttpResponse::BadRequest().json(json!({
-                    "error": {"message": format!("请求转换失败：{}", e)}
-                }))
-            }
-        }
-    } else {
-        body.clone()
-    };
-
-    // 如果目标协议是 Anthropic，解析图片 URL 为 base64
-    if needs_conversion && target_protocol == Protocol::AnthropicMessages {
-        upstream_body =
-            match llm_wrapper::transform::resolve_images_for_anthropic(&upstream_body).await {
-                Ok(b) => b,
-                Err(e) => {
-                    return HttpResponse::BadRequest().json(json!({
-                        "error": {"message": format!("图片下载失败：{}", e)}
-                    }))
-                }
-            };
+        let cli_proxy_api_key = Some(manager.api_key().await).or(route.cli_proxy_api_api_key.clone());
+        return cli_proxy_api_proxy::proxy_to_cli_proxy_api(
+            &route.cli_proxy_api_endpoint,
+            cli_proxy_api_key.as_deref(),
+            endpoint_path,
+            &body,
+            Some(&state.debug_data),
+            Some(&state.stream_hub),
+        )
+        .await;
     }
 
-    // 客户端是否请求流式（在 Codex 强制 stream=true 之前读取）
-    let client_wants_stream = upstream_body
-        .get("stream")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    // Codex 上游强制 stream=true；客户端 stream=false 时在本地聚合为 JSON
-    let codex_forced_stream =
-        needs_conversion && route.api_type == llm_wrapper::models::ApiType::ChatGptCodex;
-    if codex_forced_stream {
-        upstream_body["stream"] = serde_json::json!(true);
-    }
-
-    // 提取客户端信息
+    // 直接代理到上游
     let client_ip = req
         .peer_addr()
         .map(|p| p.ip().to_string())
@@ -352,320 +355,47 @@ async fn handle_protocol_request(
         req.uri().path()
     );
 
-    if needs_conversion && client_wants_stream {
-        // 流式协议转换（带调试）
-        return handle_streaming_conversion(
-            &proxy,
+    match proxy
+        .proxy_request_with_debug(
             &route,
-            &upstream_body,
-            target_protocol,
-            entry_protocol,
-            &body,
+            endpoint_path,
+            body,
             client_ip,
             client_url,
-            endpoint_path,
-            &state.debug_data,
-            &state.stream_hub,
-        )
-        .await;
-    } else if needs_conversion {
-        // 非流式协议转换（带调试）
-        let upstream_result = if codex_forced_stream {
-            proxy_and_drain_responses_stream(
-                &proxy,
-                &route,
-                &upstream_body,
-                target_protocol,
-                endpoint_path,
-            )
-            .await
-        } else {
-            proxy
-                .proxy_request_raw(
-                    &route,
-                    "POST".to_string(),
-                    target_protocol,
-                    upstream_body.clone(),
-                )
-                .await
-        };
-
-        match upstream_result {
-            Ok((upstream_url, status, _headers, body_bytes)) => {
-                finalize_non_stream_converted_response(
-                    state.get_ref(),
-                    debug_mode,
-                    body.clone(),
-                    client_ip,
-                    client_url,
-                    endpoint_path,
-                    upstream_url,
-                    upstream_body.clone(),
-                    target_protocol,
-                    entry_protocol,
-                    status,
-                    body_bytes,
-                )
-                .await
-            }
-            Err(e) => {
-                if e.contains("404") || e.contains("405") {
-                    HttpResponse::BadGateway().json(json!({
-                        "error": {
-                            "message": format!("上游服务不支持目标端点，无法进行协议转换。错误：{}", e)
-                        }
-                    }))
-                } else {
-                    HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
-                }
-            }
-        }
-    } else {
-        // 直接转发 - 原有行为
-        match proxy
-            .proxy_request_with_debug(
-                &route,
-                "POST".to_string(),
-                entry_protocol,
-                body,
-                client_ip,
-                client_url,
-                Some(state.debug_data.data.clone()),
-                Some(state.stream_hub.sender.clone()),
-            )
-            .await
-        {
-            Ok(resp) => {
-                if debug_mode {
-                    // 流式响应不返回 debug JSON，否则流不会被消费，广播也不会触发
-                    // 调试信息通过 /api/debug 端点获取
-                    let is_stream = resp
-                        .headers()
-                        .get(actix_web::http::header::CONTENT_TYPE)
-                        .and_then(|v| v.to_str().ok())
-                        .map(|v| v.contains("text/event-stream"))
-                        .unwrap_or(false);
-                    if !is_stream {
-                        let debug_info = state.debug_data.get().await.unwrap_or_default();
-                        return HttpResponse::Ok().json(json!({
-                            "debug": debug_info
-                        }));
-                    }
-                }
-                resp
-            }
-            Err(e) => {
-                // 对 responses/messages 端点提供更友好的错误信息
-                if (entry_protocol == Protocol::Responses
-                    || entry_protocol == Protocol::AnthropicMessages)
-                    && (e.contains("404") || e.contains("405"))
-                {
-                    HttpResponse::BadGateway().json(json!({
-                        "error": {
-                            "message": format!("上游服务不支持 {0} API ({1})。错误：{2}", protocol_name, endpoint_path, e)
-                        }
-                    }))
-                } else {
-                    HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
-                }
-            }
-        }
-    }
-}
-
-/// 处理流式协议转换：发送请求到上游，获取流式响应，转换 SSE 格式后返回
-#[allow(clippy::too_many_arguments)]
-async fn handle_streaming_conversion(
-    proxy: &llm_wrapper::proxy::Proxy,
-    route: &llm_wrapper::router::RouteResult,
-    upstream_body: &serde_json::Value,
-    target_protocol: Protocol,
-    entry_protocol: Protocol,
-    client_request: &serde_json::Value,
-    client_ip: String,
-    client_url: String,
-    endpoint_path: &str,
-    debug_store: &DebugDataStore,
-    stream_hub: &DebugStreamHub,
-) -> HttpResponse {
-    use llm_wrapper::transform::convert_stream_sse;
-
-    // 使用 proxy 获取原始流式响应
-    match proxy
-        .proxy_request_stream_raw(
-            route,
-            "POST".to_string(),
-            target_protocol,
-            upstream_body.clone(),
+            Some(state.debug_data.data.clone()),
+            Some(state.stream_hub.sender.clone()),
         )
         .await
     {
-        Ok((upstream_url, status, _headers, response)) => {
-            if status == 404 || status == 405 {
-                return HttpResponse::BadGateway().json(json!({
-                    "error": {"message": format!("上游返回 {}", status)}
-                }));
-            }
-
-            // 保存初始调试数据（流式响应，upstream_response 为 null）
-            let debug_info = DebugInfo {
-                client_request: client_request.clone(),
-                client_ip,
-                client_url,
-                endpoint: endpoint_path.to_string(),
-                upstream_url,
-                upstream_request: upstream_body.clone(),
-                upstream_response: serde_json::Value::Null,
-            };
-            debug_store.data.write().await.replace(debug_info);
-
-            // 获取 stream_hub 用于广播转换后的 SSE chunk
-            let hub = stream_hub.sender.clone();
-
-            // 获取原始字节流并转换
-            let raw_stream = response
-                .bytes_stream()
-                .map(|result: Result<_, reqwest::Error>| {
-                    result.map(Vec::from).map_err(std::io::Error::other)
-                });
-
-            let converted_stream = convert_stream_sse(target_protocol, entry_protocol, raw_stream);
-
-            // 广播转换后的 SSE chunk 到调试前端
-            let broadcast_stream = converted_stream.map(move |item| {
-                if let Ok(ref bytes) = item {
-                    if let Ok(text) = std::str::from_utf8(bytes) {
-                        let _ = hub.send(text.to_string());
-                    }
+        Ok(resp) => {
+            if debug_mode {
+                let is_stream = resp
+                    .headers()
+                    .get(actix_web::http::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|v| v.contains("text/event-stream"))
+                    .unwrap_or(false);
+                if !is_stream {
+                    let debug_info = state.debug_data.get().await.unwrap_or_default();
+                    return HttpResponse::Ok().json(json!({
+                        "debug": debug_info
+                    }));
                 }
-                item
-            });
-
-            HttpResponse::Ok()
-                .content_type("text/event-stream")
-                .insert_header(("Connection", "close"))
-                .insert_header(("Cache-Control", "no-cache"))
-                .body(actix_web::body::BodyStream::new(broadcast_stream))
+            }
+            resp
         }
-        Err(e) => HttpResponse::BadGateway().json(json!({"error": {"message": e}})),
-    }
-}
-
-/// 非流式转换结果收尾：保存调试信息 + 错误透传 + 响应协议转换
-#[allow(clippy::too_many_arguments)]
-async fn finalize_non_stream_converted_response(
-    state: &AppState,
-    debug_mode: bool,
-    client_request: serde_json::Value,
-    client_ip: String,
-    client_url: String,
-    endpoint_path: &str,
-    upstream_url: String,
-    upstream_request: serde_json::Value,
-    target_protocol: Protocol,
-    entry_protocol: Protocol,
-    status: u16,
-    body_bytes: Vec<u8>,
-) -> HttpResponse {
-    let upstream_response =
-        serde_json::from_slice::<serde_json::Value>(&body_bytes).unwrap_or(serde_json::Value::Null);
-
-    let debug_info = DebugInfo {
-        client_request,
-        client_ip,
-        client_url,
-        endpoint: endpoint_path.to_string(),
-        upstream_url,
-        upstream_request,
-        upstream_response,
-    };
-    state.debug_data.data.write().await.replace(debug_info);
-
-    // 非 2xx 错误响应直接透传，不做协议转换
-    if status >= 400 {
-        let status_code = actix_web::http::StatusCode::from_u16(status)
-            .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY);
-        if let Ok(err_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
-            return HttpResponse::build(status_code).json(err_json);
-        }
-        return HttpResponse::build(status_code)
-            .content_type("text/plain")
-            .body(body_bytes);
-    }
-
-    let response_json = match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
-        Ok(j) => j,
         Err(e) => {
-            return HttpResponse::BadGateway().json(json!({
-                "error": {"message": format!("解析上游响应失败：{}", e)}
-            }))
+            if e.contains("404") || e.contains("405") {
+                HttpResponse::BadGateway().json(json!({
+                    "error": {
+                        "message": format!("上游服务不支持该端点。错误：{}", e)
+                    }
+                }))
+            } else {
+                HttpResponse::BadGateway().json(json!({"error": {"message": e}}))
+            }
         }
-    };
-
-    let converted = match llm_wrapper::transform::convert_response(
-        target_protocol,
-        entry_protocol,
-        &response_json,
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            return HttpResponse::BadGateway().json(json!({
-                "error": {"message": format!("响应转换失败：{}", e)}
-            }))
-        }
-    };
-
-    if debug_mode {
-        let debug_info = state.debug_data.get().await.unwrap_or_default();
-        return HttpResponse::Ok().json(json!({
-            "debug": debug_info
-        }));
     }
-
-    let status_code =
-        actix_web::http::StatusCode::from_u16(status).unwrap_or(actix_web::http::StatusCode::OK);
-    HttpResponse::build(status_code).json(converted)
-}
-
-/// 发送请求到 Responses 上游并在本地 drain SSE，聚合为单条 Responses JSON
-async fn proxy_and_drain_responses_stream(
-    proxy: &llm_wrapper::proxy::Proxy,
-    route: &llm_wrapper::router::RouteResult,
-    upstream_body: &serde_json::Value,
-    target_protocol: Protocol,
-    endpoint_path: &str,
-) -> Result<(String, u16, reqwest::header::HeaderMap, Vec<u8>), String> {
-    let (upstream_url, status, headers, response) = proxy
-        .proxy_request_stream_raw(
-            route,
-            "POST".to_string(),
-            target_protocol,
-            upstream_body.clone(),
-        )
-        .await?;
-
-    if status == 404 || status == 405 {
-        return Err(format!("上游返回 {} - {}", status, endpoint_path));
-    }
-
-    if status >= 400 {
-        let body_bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("读取上游错误响应失败：{}", e))?;
-        return Ok((upstream_url, status, headers, body_bytes.to_vec()));
-    }
-
-    let aggregated = llm_wrapper::transform::drain_responses_sse_to_json(
-        response,
-        upstream_body.get("model").and_then(|v| v.as_str()),
-    )
-    .await
-    .map_err(|e| format!("聚合上游流响应失败：{}", e))?;
-
-    let body_bytes =
-        serde_json::to_vec(&aggregated).map_err(|e| format!("序列化聚合响应失败：{}", e))?;
-    Ok((upstream_url, status, headers, body_bytes))
 }
 
 async fn get_debug_data(state: web::Data<AppState>) -> HttpResponse {
@@ -704,6 +434,7 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
 
     // 并发获取所有上游的模型列表
     let auth_manager = state.auth_manager.clone();
+    let cli_proxy_api_manager = state.cli_proxy_api_manager.clone();
     let futures: Vec<_> = unique_upstreams
         .iter()
         .filter_map(|upstream_name| {
@@ -711,7 +442,8 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                 .upstreams
                 .iter()
                 .find(|up| up.name == *upstream_name && up.enabled)?;
-            let auth_manager = auth_manager.clone();
+            let _auth_manager = auth_manager.clone();
+            let cli_proxy_api_manager = cli_proxy_api_manager.clone();
             Some(async move {
                 let url = up.get_models_url();
                 let upstream_name = up.name.clone();
@@ -728,12 +460,21 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                             }
                         }
                     }
-                    UpstreamAuth::OAuthDevice { .. } => {
-                        if let Some(token) =
-                            auth_manager.get_access_token(&upstream_name, &auth).await
-                        {
-                            if !token.is_empty() && token != "none" {
-                                request = request.bearer_auth(token);
+                    // CLIProxyAPI 上游的模型列表从 CLIProxyAPI 服务获取
+                    UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => {
+                        let _provider = match &auth {
+                            UpstreamAuth::AnthropicOAuth => "claude",
+                            UpstreamAuth::CodexOAuth => "codex",
+                            _ => unreachable!(),
+                        };
+                        if let Some(mgr) = &cli_proxy_api_manager {
+                            if mgr.is_running().await {
+                                let api_key = mgr.api_key().await;
+                                let endpoint = mgr.endpoint().await;
+                                request = reqwest::Client::new()
+                                    .get(format!("{}/v1/models", endpoint))
+                                    .timeout(std::time::Duration::from_secs(2))
+                                    .bearer_auth(&api_key);
                             }
                         }
                     }
@@ -832,7 +573,7 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
             let url = upstream.get_models_url();
             let name = upstream.name.clone();
             let auth = upstream.auth.clone();
-            let auth_manager = auth_manager.clone();
+            let _auth_manager = auth_manager.clone();
 
             async move {
                 let mut request = reqwest::Client::new().get(&url);
@@ -843,10 +584,8 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
                         .as_ref()
                         .filter(|k| *k != "none" && !k.is_empty())
                         .cloned(),
-                    UpstreamAuth::OAuthDevice { .. } => auth_manager
-                        .get_access_token(&name, &auth)
-                        .await
-                        .filter(|t| !t.is_empty() && t != "none"),
+                    // CLIProxyAPI 上游的模型列表从 CLIProxyAPI 获取
+                    UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => None,
                 };
 
                 if let Some(token) = token {
@@ -920,23 +659,29 @@ async fn get_upstream_models_by_name(
                 }
             }
         }
-        UpstreamAuth::OAuthDevice { .. } => {
-            // 尝试获取 OAuth token
-            if let Some(token) = state
-                .auth_manager
-                .get_access_token(&upstream.name, &upstream.auth)
-                .await
-            {
-                if !token.is_empty() && token != "none" {
-                    request = request.bearer_auth(&token);
+        // CLIProxyAPI 上游的模型列表从 CLIProxyAPI 服务获取
+        UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => {
+            let _provider = match &upstream.auth {
+                UpstreamAuth::AnthropicOAuth => "claude",
+                UpstreamAuth::CodexOAuth => "codex",
+                _ => unreachable!(),
+            };
+            if let Some(mgr) = &state.cli_proxy_api_manager {
+                if mgr.is_running().await {
+                    let api_key = mgr.api_key().await;
+                    let endpoint = mgr.endpoint().await;
+                    request = reqwest::Client::new()
+                        .get(format!("{}/v1/models", endpoint))
+                        .timeout(std::time::Duration::from_secs(5))
+                        .bearer_auth(&api_key);
                 } else {
-                    return HttpResponse::Unauthorized().json(json!({
-                        "error": format!("上游 '{}' 未登录，请先完成 OAuth 登录", upstream.name)
+                    return HttpResponse::BadRequest().json(json!({
+                        "error": format!("上游 '{}' 的 CLIProxyAPI 服务未运行", upstream.name)
                     }));
                 }
             } else {
-                return HttpResponse::Unauthorized().json(json!({
-                    "error": format!("上游 '{}' 没有有效的访问令牌", upstream.name)
+                return HttpResponse::BadRequest().json(json!({
+                    "error": format!("上游 '{}' 的 CLIProxyAPI 未配置", upstream.name)
                 }));
             }
         }
@@ -1021,47 +766,18 @@ async fn auth_login(state: web::Data<AppState>, path: web::Path<String>) -> Http
     }
     let upstream = upstream.unwrap();
 
-    let (client_id, device_auth_url, token_url, scope) = match &upstream.auth {
-        UpstreamAuth::OAuthDevice {
-            client_id,
-            device_auth_url,
-            token_url,
-            scope,
-        } => (
-            client_id.as_str(),
-            device_auth_url.as_str(),
-            token_url.as_str(),
-            scope.as_deref(),
-        ),
+    match &upstream.auth {
         UpstreamAuth::ApiKey { .. } => {
             return HttpResponse::BadRequest().json(json!({
                 "error": "该上游不使用 OAuth 认证"
             }));
         }
-    };
-
-    match state
-        .auth_manager
-        .initiate_device_auth(&upstream.name, client_id, device_auth_url, token_url, scope)
-        .await
-    {
-        Ok(session) => HttpResponse::Ok().json(json!({
-            "status": "pending",
-            "user_code": session.user_code,
-            "verification_uri": session.verification_uri,
-            "verification_uri_complete": session.verification_uri_complete,
-            "expires_at": session.expires_at.to_rfc3339(),
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(json!({
-            "error": e
-        })),
+        UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("上游 '{}' 的登录由 CLIProxyAPI 管理，请使用 /api/cli-proxy-api/login/{}", upstream.name, upstream_name)
+            }));
+        }
     }
-}
-
-async fn auth_status(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
-    let upstream_name = path.into_inner();
-    let status = state.auth_manager.get_token_status(&upstream_name).await;
-    HttpResponse::Ok().json(status)
 }
 
 async fn auth_clear_token(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
@@ -1072,30 +788,207 @@ async fn auth_clear_token(state: web::Data<AppState>, path: web::Path<String>) -
     }))
 }
 
-/// SSE 流：推送 OAuth 登录完成事件
-async fn auth_login_stream(state: web::Data<AppState>) -> impl actix_web::Responder {
-    let receiver = state.auth_manager.subscribe_completion();
-    let stream: Pin<Box<dyn Stream<Item = Result<actix_web::web::Bytes, Error>> + Send>> =
-        tokio_stream::wrappers::BroadcastStream::new(receiver)
-            .map(|result| match result {
-                Ok((upstream_name, status)) => {
-                    let json = serde_json::to_string(&json!({
-                        "type": "status",
-                        "upstream": upstream_name,
-                        "status": status,
-                    }))
-                    .unwrap_or_default();
-                    Ok(actix_web::web::Bytes::from(format!("data: {}\n\n", json)))
-                }
-                Err(_) => Ok(actix_web::web::Bytes::from(
-                    "data: {\"error\":\"connection reset\"}\n\n",
-                )),
-            })
-            .boxed();
+/// CLIProxyAPI 登录：发起 OAuth 登录流程
+async fn cli_proxy_api_login(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let upstream_name = path.into_inner();
 
-    actix_web::HttpResponse::Ok()
-        .content_type("text/event-stream")
-        .body(actix_web::body::BodyStream::new(stream))
+    // 验证上游存在且是 CLIProxyAPI 类型
+    let config = state.config.get_config().await;
+    let upstream = config
+        .upstreams
+        .iter()
+        .find(|u| u.name == upstream_name && u.auth.is_cli_proxy_api());
+
+    if upstream.is_none() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("上游 '{}' 不存在或不是 CLIProxyAPI 类型", upstream_name)
+        }));
+    }
+
+    let upstream = upstream.unwrap();
+
+    // 将 auth 类型映射为 provider id
+    let provider = match &upstream.auth {
+        UpstreamAuth::AnthropicOAuth => "claude",
+        UpstreamAuth::CodexOAuth => "codex",
+        _ => unreachable!(),
+    };
+
+    let manager = match &state.cli_proxy_api_manager {
+        Some(m) => m,
+        None => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "CLIProxyAPI manager not initialized"
+            }));
+        }
+    };
+
+    match manager.start_login(provider).await {
+        Ok(result) => HttpResponse::Ok().json(json!({
+            "auth_url": result.auth_url,
+            "provider": provider,
+            "device_code": result.device_code,
+            "manual": true,
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": format!("Failed to start login: {}", e)
+        })),
+    }
+}
+
+/// CLIProxyAPI 登录完成：用户粘贴回调 URL
+async fn cli_proxy_api_complete_login(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> HttpResponse {
+    let upstream_name = path.into_inner();
+
+    let callback_url = match body.get("callback_url").and_then(|v| v.as_str()) {
+        Some(u) => u.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": "Missing 'callback_url' field"
+            }));
+        }
+    };
+
+    // 验证上游存在且是 CLIProxyAPI 类型
+    let config = state.config.get_config().await;
+    let upstream = config
+        .upstreams
+        .iter()
+        .find(|u| u.name == upstream_name && u.auth.is_cli_proxy_api());
+
+    if upstream.is_none() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("上游 '{}' 不存在或不是 CLIProxyAPI 类型", upstream_name)
+        }));
+    }
+
+    let upstream = upstream.unwrap();
+
+    let provider = match &upstream.auth {
+        UpstreamAuth::AnthropicOAuth => "claude",
+        UpstreamAuth::CodexOAuth => "codex",
+        _ => unreachable!(),
+    };
+
+    let manager = match &state.cli_proxy_api_manager {
+        Some(m) => m,
+        None => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "CLIProxyAPI manager not initialized"
+            }));
+        }
+    };
+
+    match manager.complete_login(provider, &callback_url).await {
+        Ok(()) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "message": "Login callback submitted, completing authentication..."
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": format!("Failed to complete login: {}", e)
+        })),
+    }
+}
+
+/// CLIProxyAPI 登录状态：SSE 推送登录完成事件
+async fn cli_proxy_api_login_stream(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let upstream_name = path.into_inner();
+
+    let config = state.config.get_config().await;
+    let upstream = config
+        .upstreams
+        .iter()
+        .find(|u| u.name == upstream_name && u.auth.is_cli_proxy_api());
+
+    if upstream.is_none() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("上游 '{}' 不存在或不是 CLIProxyAPI 类型", upstream_name)
+        }));
+    }
+
+    let _ = &upstream_name;
+    HttpResponse::BadRequest().json(json!({
+        "error": "Login stream not yet implemented. Use /api/cli-proxy-api/login/{name} first."
+    }))
+}
+
+/// 将 CLIProxyAPI 管理 API 响应转换为前端期望格式
+fn transform_cli_proxy_api_status(body: &serde_json::Value) -> serde_json::Value {
+    let mut providers = serde_json::Map::new();
+
+    if let Some(files) = body.get("files").and_then(|f| f.as_array()) {
+        for file in files {
+            let provider = file.get("provider").and_then(|p| p.as_str()).unwrap_or("");
+            let account = serde_json::json!({
+                "email": file.get("email").and_then(|e| e.as_str()).unwrap_or(""),
+                "status": file.get("status").and_then(|s| s.as_str()).unwrap_or("unknown"),
+                "expiresAt": file.get("expiresAt").and_then(|e| e.as_str()).unwrap_or("")
+            });
+
+            let entry: serde_json::Value =
+                providers.get(provider).unwrap_or(&serde_json::json!({})).clone();
+            let mut accounts = entry.get("accounts").and_then(|a| a.as_array()).cloned().unwrap_or(vec![]);
+            accounts.push(account);
+            let mut new_entry = serde_json::Map::new();
+            new_entry.insert("account_count".to_string(), serde_json::json!(accounts.len()));
+            new_entry.insert("accounts".to_string(), serde_json::json!(accounts));
+            providers.insert(provider.to_string(), serde_json::Value::Object(new_entry));
+        }
+    }
+
+    serde_json::json!({"providers": providers})
+}
+
+/// CLIProxyAPI 状态：获取账号信息
+async fn cli_proxy_api_status(state: web::Data<AppState>) -> HttpResponse {
+    let manager = match &state.cli_proxy_api_manager {
+        Some(m) => m,
+        None => {
+            return HttpResponse::Ok().json(json!({"files": []}));
+        }
+    };
+
+    if manager.is_running().await {
+        let endpoint = manager.endpoint().await;
+        let secret = manager.management_secret().await;
+
+        let mut builder =
+            reqwest::Client::new().get(format!("{}/v0/management/auth-files", endpoint));
+        builder = builder.bearer_auth(&secret);
+
+        match builder.send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(body) => {
+                        // CLIProxyAPI 返回 {"files": [{"provider":"codex","status":"active","email":"..."}]}
+                        // 转换为 JS 期望的格式: {"providers": {"codex": {"account_count":1,"accounts":[...]}}}
+                        let transformed = transform_cli_proxy_api_status(&body);
+                        return HttpResponse::Ok().json(transformed);
+                    }
+                    Err(e) => return HttpResponse::InternalServerError().json(json!({
+                        "error": format!("Failed to parse CLIProxyAPI response: {}", e)
+                    })),
+                }
+            }
+            _ => {
+                // Fallback to file check below
+            }
+        }
+    }
+
+    // Fallback: check auth directory for account files
+    let status = manager.get_account_status().await;
+    HttpResponse::Ok().json(status)
 }
 
 /// 创建上游模型 alias 的请求

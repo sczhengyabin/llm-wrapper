@@ -1,17 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// API 类型
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub enum ApiType {
-    #[default]
-    #[serde(rename = "open_ai", alias = "open_a_i")]
-    OpenAI,
-    /// ChatGPT Codex 后端 (chatgpt.com/backend-api/codex/responses)
-    #[serde(rename = "chatgpt_codex", alias = "chat_gpt_codex")]
-    ChatGptCodex,
-}
-
 /// 上游认证方式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -19,14 +8,12 @@ pub enum UpstreamAuth {
     ApiKey {
         key: Option<String>,
     },
-    #[serde(rename = "oauth_device")]
-    OAuthDevice {
-        client_id: String,
-        device_auth_url: String,
-        token_url: String,
-        #[serde(default)]
-        scope: Option<String>,
-    },
+    /// Anthropic OAuth（由 CLIProxyAPI 管理）
+    #[serde(rename = "anthropic_oauth")]
+    AnthropicOAuth,
+    /// Codex OAuth（由 CLIProxyAPI 管理）
+    #[serde(rename = "codex_oauth")]
+    CodexOAuth,
 }
 
 impl Default for UpstreamAuth {
@@ -35,17 +22,22 @@ impl Default for UpstreamAuth {
     }
 }
 
-/// RFC 8628 设备授权响应
-#[derive(Debug, Clone, Deserialize)]
-pub struct DeviceAuthResponse {
-    pub device_code: String,
-    pub user_code: String,
-    pub verification_uri: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub verification_uri_complete: Option<String>,
-    pub expires_in: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interval: Option<u64>,
+impl UpstreamAuth {
+    /// 是否由 CLIProxyAPI 管理的认证方式
+    pub fn is_cli_proxy_api(&self) -> bool {
+        matches!(
+            self,
+            UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth
+        )
+    }
+
+    /// 是否为 OAuth 认证
+    pub fn is_oauth(&self) -> bool {
+        matches!(
+            self,
+            UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth
+        )
+    }
 }
 
 /// OAuth 2.0 Token 响应
@@ -66,29 +58,6 @@ pub struct CachedToken {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     pub expires_at: chrono::DateTime<chrono::Utc>,
-}
-
-/// 设备认证状态（对外 API 使用）
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum DeviceAuthStatus {
-    Pending {
-        user_code: String,
-        verification_uri: String,
-        verification_uri_complete: Option<String>,
-        expires_at: String,
-    },
-    Success {
-        message: String,
-        expires_at: Option<String>,
-    },
-    Failed {
-        reason: String,
-        message: String,
-    },
-    Expired {
-        message: String,
-    },
 }
 
 /// Alias 来源类型
@@ -132,9 +101,6 @@ pub struct UpstreamConfig {
     pub name: String,
     /// 上游 API 基础 URL
     pub base_url: String,
-    /// API 类型（默认 OpenAI）
-    #[serde(default)]
-    pub api_type: ApiType,
     /// 认证配置（默认 ApiKey(None)）
     #[serde(default = "default_api_key_auth")]
     pub auth: UpstreamAuth,
@@ -172,7 +138,8 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
         struct Raw {
             name: Option<String>,
             base_url: Option<String>,
-            api_type: Option<ApiType>,
+            #[allow(dead_code)]
+            api_type: Option<String>, // deprecated, ignored
             api_key: Option<String>,
             auth: Option<UpstreamAuth>,
             enabled: Option<bool>,
@@ -192,7 +159,6 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
         let base_url = raw
             .base_url
             .ok_or_else(|| D::Error::missing_field("base_url"))?;
-        let api_type = raw.api_type.unwrap_or_default();
 
         let auth = match (raw.auth, raw.api_key) {
             (Some(a), _) => a, // 新格式优先
@@ -219,10 +185,11 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
                 (support_openai, support_openai, support_anthropic)
             };
 
-        // Codex 强制只支持 responses
+        // CLIProxyAPI 上游默认支持所有协议（由 CLIProxyAPI 内部转换）
+        let is_cli_proxy_api = auth.is_cli_proxy_api();
         let (support_chat_completions, support_responses, support_anthropic_messages) =
-            if api_type == ApiType::ChatGptCodex {
-                (false, true, false)
+            if is_cli_proxy_api {
+                (true, true, true)
             } else {
                 (
                     support_chat_completions,
@@ -234,7 +201,6 @@ impl<'de> serde::Deserialize<'de> for UpstreamConfig {
         Ok(UpstreamConfig {
             name,
             base_url,
-            api_type,
             auth,
             enabled: raw.enabled.unwrap_or(true),
             support_chat_completions,
@@ -261,7 +227,6 @@ impl UpstreamConfig {
         Self {
             name: name.clone(),
             base_url,
-            api_type: ApiType::default(),
             auth: UpstreamAuth::ApiKey { key: None },
             enabled: true,
             support_chat_completions: true,
@@ -279,17 +244,12 @@ impl UpstreamConfig {
 
     /// 获取模型列表 URL
     pub fn get_models_url(&self) -> String {
-        if self.api_type == ApiType::ChatGptCodex {
-            // Codex models endpoint requires client_version query parameter
-            format!("{}/codex/models?client_version=1.0.0", self.base_url)
-        } else {
-            format!("{}/v1/models", self.base_url)
-        }
+        format!("{}/v1/models", self.base_url)
     }
 
     /// 是否为 OAuth 认证
     pub fn is_oauth(&self) -> bool {
-        matches!(self.auth, UpstreamAuth::OAuthDevice { .. })
+        self.auth.is_oauth()
     }
 
     /// 获取 API Key（仅 ApiKey 类型）
@@ -345,9 +305,16 @@ pub struct AppConfig {
     /// 别名列表
     #[serde(default)]
     pub aliases: Vec<ModelAlias>,
-    /// 当上游不支持入口协议时，允许自动转换为上游支持的协议
-    #[serde(default)]
-    pub allow_protocol_conversion: bool,
+    /// CLIProxyAPI sidecar 端点地址
+    #[serde(default = "default_cli_proxy_api_endpoint", alias = "auth2api_endpoint")]
+    pub cli_proxy_api_endpoint: String,
+    /// CLIProxyAPI API key（用于与 CLIProxyAPI 通信）
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "auth2api_api_key")]
+    pub cli_proxy_api_api_key: Option<String>,
+}
+
+fn default_cli_proxy_api_endpoint() -> String {
+    "http://127.0.0.1:8317".to_string()
 }
 
 impl AppConfig {
@@ -412,11 +379,7 @@ mod tests {
                 "base_url": "https://api.openai.com",
                 "enabled": true,
                 "auth": {
-                    "type": "oauth_device",
-                    "client_id": "codex",
-                    "device_auth_url": "https://auth.openai.com/oauth/authorize",
-                    "token_url": "https://auth.openai.com/oauth/token",
-                    "scope": "offline"
+                    "type": "codex_oauth"
                 }
             }]
         }"#;
@@ -432,11 +395,7 @@ mod tests {
                 "base_url": "https://api.openai.com",
                 "enabled": true,
                 "auth": {
-                    "type": "oauth_device",
-                    "client_id": "codex",
-                    "device_auth_url": "https://auth.openai.com/oauth/authorize",
-                    "token_url": "https://auth.openai.com/oauth/token",
-                    "scope": "offline"
+                    "type": "codex_oauth"
                 }
             }, {
                 "name": "vllm",
@@ -477,23 +436,6 @@ mod tests {
         assert!(config.upstreams[0].support_chat_completions);
         assert!(config.upstreams[0].support_responses);
         assert!(config.upstreams[0].support_anthropic_messages);
-    }
-
-    #[test]
-    fn test_codex_forces_responses() {
-        let json = r#"{
-            "upstreams": [{
-                "name": "codex",
-                "base_url": "https://chatgpt.com/backend-api",
-                "api_type": "chatgpt_codex",
-                "support_chat_completions": true,
-                "support_anthropic_messages": true
-            }]
-        }"#;
-        let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
-        assert!(!config.upstreams[0].support_chat_completions);
-        assert!(config.upstreams[0].support_responses);
-        assert!(!config.upstreams[0].support_anthropic_messages);
     }
 
     #[test]

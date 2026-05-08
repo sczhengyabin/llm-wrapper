@@ -310,27 +310,6 @@
             padding-bottom: 0;
             border-bottom: none;
         }
-        .global-config-label {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-shrink: 0;
-            cursor: pointer;
-        }
-        .global-config-text {
-            display: flex;
-            flex-direction: column;
-            gap: 1px;
-        }
-        .global-config-text > span:first-child {
-            font-weight: 600;
-            font-size: 13px;
-            color: #555;
-        }
-        .global-config-hint {
-            font-size: 11px;
-            color: #999;
-        }
         .modal {
             display: none;
             position: fixed;
@@ -724,6 +703,10 @@
             background: #cce5ff;
             color: #004085;
         }
+        .auth-badge.CLIProxyAPI {
+            background: #e2d5f1;
+            color: #6f42c1;
+        }
         .token-status {
             font-size: 12px;
             margin-top: 4px;
@@ -806,16 +789,6 @@
         <div class="section">
             <div class="section-header">
                 <h2 data-i18n="section_upstreams">上游配置</h2>
-                <label class="global-config-label">
-                    <div class="global-config-text">
-                        <span data-i18n="global_protocol_conversion">协议转换</span>
-                        <span class="global-config-hint" data-i18n="global_protocol_conversion_hint">启用后，客户端协议与上游协议不匹配时自动转换</span>
-                    </div>
-                    <div class="switch">
-                        <input type="checkbox" id="allow_protocol_conversion" onchange="toggleProtocolConversion()">
-                        <span class="slider"></span>
-                    </div>
-                </label>
             </div>
             <button class="btn" data-i18n="btn_add_upstream" onclick="openUpstreamModal()">添加上游</button>
             <div class="item-list" id="upstreamList">
@@ -893,7 +866,8 @@
                     <label data-i18n="upstream_auth_type_label">认证方式 *</label>
                     <select id="upstreamAuthType" onchange="toggleAuthFields()">
                         <option value="api_key" data-i18n="auth_api_key">API Key</option>
-                        <option value="codex" data-i18n="auth_codex">Codex (ChatGPT OAuth)</option>
+                        <option value="anthropic_oauth" data-i18n="auth_anthropic_oauth">Anthropic (CLIProxyAPI)</option>
+                        <option value="codex_oauth" data-i18n="auth_codex_oauth">Codex (CLIProxyAPI)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -906,9 +880,9 @@
                         <input type="text" id="upstreamApiKey" data-i18n-placeholder="upstream_apikey_placeholder" placeholder="留空表示不需要密钥">
                     </div>
                 </div>
-                <div id="codexFields" style="display: none;">
+                <div id="CLIProxyAPIFields" style="display: none;">
                     <div style="padding: 10px; background: #f0f7ff; border-radius: 4px; font-size: 13px; color: #555;">
-                        <div data-i18n="codex_info">Codex 使用 ChatGPT 后端 API，登录完成后自动获取 Token。基础 URL 已自动设置为 chatgpt.com 后端地址。</div>
+                        <div data-i18n="CLIProxyAPI_info">CLIProxyAPI 管理的上游：OAuth 登录和协议转换由 CLIProxyAPI 处理。基础 URL 仅供参考。</div>
                     </div>
                 </div>
                 <div id="commonFields">
@@ -1058,8 +1032,6 @@
                 protocol_chat_completions: "Chat Completions",
                 protocol_responses: "Responses",
                 protocol_anthropic_messages: "Anthropic Messages",
-                global_protocol_conversion: "协议转换",
-                global_protocol_conversion_hint: "启用后，客户端协议与上游协议不匹配时自动转换",
                 anthropic_baseurl_placeholder: "留空则使用上方的 base URL",
                 anthropic_baseurl_hint: "Anthropic messages 协议的独立 base URL，留空则与 OpenAI 一致",
                 alias_name_label: "别名 *",
@@ -1123,8 +1095,9 @@
                 mode_override: "覆盖",
                 upstream_auth_type_label: "认证方式",
                 auth_api_key: "API Key",
-                auth_codex: "Codex (ChatGPT OAuth)",
-                codex_info: "Codex 使用 ChatGPT 后端 API，登录完成后自动获取 Token。基础 URL 已自动设置为 chatgpt.com 后端地址。",
+                auth_anthropic_oauth: "Anthropic (CLIProxyAPI)",
+                auth_codex_oauth: "Codex (CLIProxyAPI)",
+                CLIProxyAPI_info: "CLIProxyAPI 管理的上游：OAuth 登录和协议转换由 CLIProxyAPI 处理。基础 URL 仅供参考。",
                 oauth_login: "登录",
                 oauth_logout: "登出",
                 oauth_relogin: "重新登录",
@@ -1183,8 +1156,6 @@
                 protocol_chat_completions: "Chat Completions",
                 protocol_responses: "Responses",
                 protocol_anthropic_messages: "Anthropic Messages",
-                global_protocol_conversion: "Protocol Conversion",
-                global_protocol_conversion_hint: "When enabled, automatically convert between client and upstream protocols",
                 anthropic_baseurl_placeholder: "Leave empty to use the base URL above",
                 anthropic_baseurl_hint: "Independent base URL for Anthropic messages protocol, leaves empty to match OpenAI",
                 alias_name_label: "Alias *",
@@ -1248,8 +1219,9 @@
                 mode_override: "override",
                 upstream_auth_type_label: "Auth Type",
                 auth_api_key: "API Key",
-                auth_codex: "Codex (ChatGPT OAuth)",
-                codex_info: "Codex uses ChatGPT backend API. Token is obtained automatically after login. Base URL is auto-set to chatgpt.com backend.",
+                auth_anthropic_oauth: "Anthropic (CLIProxyAPI)",
+                auth_codex_oauth: "Codex (CLIProxyAPI)",
+                CLIProxyAPI_info: "CLIProxyAPI-managed upstream: OAuth login and protocol conversion handled by CLIProxyAPI. Base URL is for reference only.",
                 oauth_login: "Login",
                 oauth_logout: "Logout",
                 oauth_relogin: "Re-login",
@@ -1523,24 +1495,15 @@
         }
 
         function renderUpstreamProtocols(u, i) {
-            if (isCodexUpstream(u)) {
-                return `
-                <div class="item-detail" style="margin-top: 4px;">
-                    <div style="font-size: 11px; color: #999; margin-bottom: 4px;">支持协议</div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        ${protoTagHtml('Chat', false, null)}
-                        ${protoTagHtml('Responses', true, null)}
-                        ${protoTagHtml('Anthropic', false, null)}
-                    </div>
-                </div>`;
-            }
+            const isCLIProxyApi = isCLIProxyApiUpstream(u);
+            // CLIProxyAPI upstreams: all protocols enabled, not clickable
             return `
             <div class="item-detail" style="margin-top: 4px;">
                 <div style="font-size: 11px; color: #999; margin-bottom: 4px;">支持协议</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
-                    ${protoTagHtml('Chat', u.support_chat_completions === true, `toggleUpstreamProtocol(${i}, 'support_chat_completions')`)}
-                    ${protoTagHtml('Responses', u.support_responses === true, `toggleUpstreamProtocol(${i}, 'support_responses')`)}
-                    ${protoTagHtml('Anthropic', u.support_anthropic_messages === true, `toggleUpstreamProtocol(${i}, 'support_anthropic_messages')`)}
+                    ${protoTagHtml('Chat', isCLIProxyApi || u.support_chat_completions === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_chat_completions')`)}
+                    ${protoTagHtml('Responses', isCLIProxyApi || u.support_responses === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_responses')`)}
+                    ${protoTagHtml('Anthropic', isCLIProxyApi || u.support_anthropic_messages === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_anthropic_messages')`)}
                 </div>
             </div>`;
         }
@@ -1645,11 +1608,6 @@
 
         async function toggleUpstreamProtocol(index, field) {
             config.upstreams[index][field] = !config.upstreams[index][field];
-            await saveConfig();
-        }
-
-        async function toggleProtocolConversion() {
-            config.allow_protocol_conversion = document.getElementById('allow_protocol_conversion').checked;
             await saveConfig();
         }
 
@@ -2037,30 +1995,42 @@
 
         // Token status cache for OAuth upstreams
         let oauthTokenStatus = {};
+        let CLIProxyAPIAccountStatus = {};
         let oauthSSE = null;
         let oauthStatusPollInterval = null;
 
-        function isOAuthUpstream(upstream) {
-            return upstream.auth && upstream.auth.type === 'oauth_device';
+        function isCLIProxyApiUpstream(upstream) {
+            const t = upstream.auth && upstream.auth.type;
+            return t === 'anthropic_oauth' || t === 'codex_oauth' ;
         }
 
-        function isCodexUpstream(upstream) {
-            return upstream.api_type === 'chatgpt_codex' ||
-                   (upstream.auth && upstream.auth.type === 'oauth_device' && upstream.base_url && upstream.base_url.includes('chatgpt.com'));
-        }
 
         function getAuthBadge(upstream) {
-            if (isCodexUpstream(upstream)) {
-                return '<span class="auth-badge oauth">Codex</span>';
+            if (isCLIProxyApiUpstream(upstream)) {
+                const provider = upstream.auth.type === 'anthropic_oauth' ? 'Anthropic'
+                    : upstream.auth.type === 'codex_oauth' ? 'Codex' : 'Cursor';
+                return `<span class="auth-badge CLIProxyAPI">${provider} (CLIProxyAPI)</span>`;
             }
-            if (isOAuthUpstream(upstream)) {
+            if (isCLIProxyApiUpstream(upstream)) {
                 return '<span class="auth-badge oauth">OAuth</span>';
             }
             return '<span class="auth-badge api-key">API Key</span>';
         }
 
         function getTokenStatusHtml(upstream) {
-            if (!isOAuthUpstream(upstream)) return '';
+            if (isCLIProxyApiUpstream(upstream)) {
+                const status = CLIProxyAPIAccountStatus[upstream.name];
+                if (status && status.logged_in) {
+                    let expStr = '';
+                    if (status.expires_at) {
+                        const expires = new Date(status.expires_at);
+                        expStr = ' (' + expires.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + ')';
+                    }
+                    return `<div class="token-status valid">${t('oauth_logged_in')}${expStr} (${status.email || ''})</div>`;
+                }
+                return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
+            }
+            if (!isCLIProxyApiUpstream(upstream)) return '';
             const status = oauthTokenStatus[upstream.name];
             if (!status) return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
 
@@ -2092,7 +2062,14 @@
         }
 
         function getAuthActions(upstream, index) {
-            if (!isOAuthUpstream(upstream)) return '';
+            if (isCLIProxyApiUpstream(upstream)) {
+                const status = CLIProxyAPIAccountStatus[upstream.name];
+                if (status && status.logged_in) {
+                    return `<button class="btn btn-secondary" onclick="CLIProxyAPILogin('${upstream.name}')">${t('oauth_relogin')}</button>`;
+                }
+                return `<button class="btn btn-success" onclick="CLIProxyAPILogin('${upstream.name}')">${t('oauth_login')}</button>`;
+            }
+            if (!isCLIProxyApiUpstream(upstream)) return '';
             const status = oauthTokenStatus[upstream.name];
             let html = `<button class="btn btn-success" onclick="oauthLogin('${upstream.name}')">${t('oauth_login')}</button>`;
             if (status && status.status === 'success') {
@@ -2104,36 +2081,41 @@
         // Toggle auth type fields in upstream modal
         function toggleAuthFields() {
             const authType = document.getElementById('upstreamAuthType').value;
-            const isCodex = authType === 'codex';
+            const isCLIProxyApi = authType === 'anthropic_oauth' || authType === 'codex_oauth' ;
             const baseUrlInput = document.getElementById('upstreamBaseUrl');
             const apiKeyFields = document.getElementById('apiKeyFields');
-            const codexFields = document.getElementById('codexFields');
+            const CLIProxyAPIFields = document.getElementById('CLIProxyAPIFields');
             const commonFields = document.getElementById('commonFields');
             const testBtn = document.getElementById('testConnectionBtn');
 
-            apiKeyFields.style.display = isCodex ? 'none' : 'block';
-            codexFields.style.display = isCodex ? 'block' : 'none';
+            apiKeyFields.style.display = isCLIProxyApi ? 'none' : 'block';
+            CLIProxyAPIFields.style.display = isCLIProxyApi ? 'block' : 'none';
             commonFields.style.display = 'block';
-            testBtn.style.display = isCodex ? 'none' : 'inline-flex';
+            testBtn.style.display = isCLIProxyApi ? 'none' : 'inline-flex';
 
             const chatCb = document.getElementById('upstreamSupportChat');
             const respCb = document.getElementById('upstreamSupportResponses');
             const anthCb = document.getElementById('upstreamSupportAnthropic');
-            if (isCodex) {
-                chatCb.checked = false;
-                respCb.checked = true;
-                anthCb.checked = false;
-                chatCb.disabled = true;
-                respCb.disabled = true;
-                anthCb.disabled = true;
+            const protocolGroup = document.getElementById('protocolSupportGroup');
+            const anthContainer = document.getElementById('anthropicBaseUrlContainer');
+            // CLIProxyAPI upstreams support all protocols — hide the section entirely
+            if (isCLIProxyApi) {
+                protocolGroup.style.display = 'none';
+                anthContainer.style.display = 'none';
             } else {
+                protocolGroup.style.display = 'block';
                 chatCb.disabled = false;
                 respCb.disabled = false;
                 anthCb.disabled = false;
             }
 
-            if (isCodex) {
-                baseUrlInput.value = 'https://chatgpt.com/backend-api';
+            if (isCLIProxyApi) {
+                // Set default base URL based on provider
+                if (authType === 'anthropic_oauth') {
+                    baseUrlInput.value = 'https://api.anthropic.com';
+                } else if (authType === 'codex_oauth') {
+                    baseUrlInput.value = 'https://chatgpt.com/backend-api';
+                }
                 baseUrlInput.readOnly = true;
                 baseUrlInput.style.background = '#f5f5f5';
             } else {
@@ -2252,13 +2234,171 @@
             }
         }
 
+        // CLIProxyAPI 登录流程（manual mode）
+        async function CLIProxyAPILogin(upstreamName) {
+            try {
+                const resp = await fetch(`/api/cli-proxy-api/login/${encodeURIComponent(upstreamName)}`, { method: 'POST' });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showStatus(err.error || '登录失败', 'error');
+                    return;
+                }
+                const data = await resp.json();
+                // 打开授权页面
+                window.open(data.auth_url, '_blank');
+
+                if (data.manual) {
+                    // Manual mode: show paste prompt
+                    CLIProxyAPIAccountStatus[upstreamName] = { logged_in: false };
+                    renderUpstreams();
+
+                    const body = document.getElementById('oauthLoginBody');
+                    body.innerHTML = `
+                        <div class="instructions">
+                            <p>请在浏览器中完成授权登录。</p>
+                            <p>授权完成后，浏览器会跳转到一个类似 <code>http://127.0.0.1:xxxx/callback?code=...</code> 的地址（页面可能显示 404，这是正常的）。</p>
+                            <p><strong>请将浏览器地址栏中的完整 URL 粘贴到下方：</strong></p>
+                        </div>
+                        <div class="form-group" style="margin-top:16px;">
+                            <textarea id="callbackUrlInput" rows="3" style="width:100%;padding:8px;font-family:monospace;font-size:13px;border:1px solid #ccc;border-radius:6px;resize:vertical;" placeholder="http://127.0.0.1:xxxx/callback?code=..."></textarea>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn" onclick="closeOAuthLoginModal()">取消</button>
+                            <button class="btn btn-success" onclick="submitCallbackUrl('${upstreamName}')">确认</button>
+                        </div>
+                    `;
+                    openOAuthLoginModal();
+                }
+            } catch (error) {
+                showStatus('登录请求失败: ' + error.message, 'error');
+            }
+        }
+
+        // 提交回调 URL 完成 manual 登录
+        async function submitCallbackUrl(upstreamName) {
+            const input = document.getElementById('callbackUrlInput');
+            const callbackUrl = input.value.trim();
+            if (!callbackUrl) {
+                showStatus('请粘贴回调 URL', 'error');
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/api/cli-proxy-api/complete-login/${encodeURIComponent(upstreamName)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ callback_url: callbackUrl })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showStatus(err.error || '登录失败', 'error');
+                    return;
+                }
+
+                closeOAuthLoginModal();
+                showStatus('回调已提交，正在完成登录...', 'info');
+                startLoginPoll(upstreamName);
+            } catch (error) {
+                showStatus('提交失败: ' + error.message, 'error');
+            }
+        }
+
+        // 轮询 CLIProxyAPI 登录状态
+        function startLoginPoll(upstreamName) {
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusResp = await fetch(`/api/cli-proxy-api/status`);
+                    if (statusResp.ok) {
+                        const accounts = await statusResp.json();
+                        const provider = getUpstream(upstreamName)?.auth?.type;
+                        const providerId = provider?.replace('_oauth', '') || 'anthropic';
+                        if (accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
+                            clearInterval(pollInterval);
+                            const acc = accounts.providers[providerId].accounts[0];
+                            CLIProxyAPIAccountStatus[upstreamName] = {
+                                logged_in: true,
+                                email: acc.email,
+                                expires_at: acc.expiresAt,
+                            };
+                            renderUpstreams();
+                            showStatus('登录成功: ' + acc.email, 'success');
+                        }
+                    }
+                } catch (e) {
+                    // ignore polling errors
+                }
+            }, 3000);
+
+            // 5 分钟超时
+            setTimeout(() => {
+                clearInterval(pollInterval);
+                delete CLIProxyAPIAccountStatus[upstreamName];
+                renderUpstreams();
+            }, 5 * 60 * 1000);
+        }
+
+        async function CLIProxyAPIRefreshStatus(upstreamName) {
+            try {
+                const resp = await fetch('/api/cli-proxy-api/status');
+                if (resp.ok) {
+                    const accounts = await resp.json();
+                    const provider = getUpstream(upstreamName)?.auth?.type;
+                    const providerId = provider?.replace('_oauth', '') || 'anthropic';
+                    if (accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
+                        const acc = accounts.providers[providerId].accounts[0];
+                        CLIProxyAPIAccountStatus[upstreamName] = {
+                            logged_in: true,
+                            email: acc.email,
+                            expires_at: acc.expiresAt,
+                        };
+                    } else {
+                        CLIProxyAPIAccountStatus[upstreamName] = { logged_in: false };
+                    }
+                    renderUpstreams();
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function getUpstream(name) {
+            return config.upstreams.find(u => u.name === name);
+        }
+
         async function loadOAuthTokenStatus() {
-            const oauthUpstreams = config.upstreams.filter(u => u.enabled && isOAuthUpstream(u));
+            const oauthUpstreams = config.upstreams.filter(u => u.enabled && isCLIProxyApiUpstream(u));
             for (const up of oauthUpstreams) {
                 try {
                     const response = await fetch(`/api/auth/status/${encodeURIComponent(up.name)}`);
                     if (response.ok) {
                         oauthTokenStatus[up.name] = await response.json();
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            // Load CLIProxyAPI account status
+            const CLIProxyAPIUpstreams = config.upstreams.filter(u => u.enabled && isCLIProxyApiUpstream(u));
+            if (CLIProxyAPIUpstreams.length > 0) {
+                try {
+                    const resp = await fetch('/api/cli-proxy-api/status');
+                    if (resp.ok) {
+                        const accounts = await resp.json();
+                        for (const up of CLIProxyAPIUpstreams) {
+                            const providerId = up.auth.type.replace('_oauth', '');
+                            if (accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
+                                const acc = accounts.providers[providerId].accounts[0];
+                                CLIProxyAPIAccountStatus[up.name] = {
+                                    logged_in: true,
+                                    email: acc.email,
+                                    expires_at: acc.expiresAt,
+                                };
+                            } else {
+                                CLIProxyAPIAccountStatus[up.name] = { logged_in: false };
+                            }
+                        }
                     }
                 } catch (e) {
                     // ignore
@@ -2337,12 +2477,13 @@
                     </div>`
                     : '';
 
-                const isOAuth = isOAuthUpstream(u);
+                const isOAuth = isCLIProxyApiUpstream(u);
+                const isCLIProxyApi = isCLIProxyApiUpstream(u);
                 const authBadge = getAuthBadge(u);
                 const tokenStatus = getTokenStatusHtml(u);
                 const authActions = getAuthActions(u, i);
 
-                const apiKeyDisplay = !isOAuth
+                const apiKeyDisplay = !isOAuth && !isCLIProxyApi
                     ? (() => {
                         const key = (u.auth && u.auth.type === 'api_key' && u.auth.key) || u.api_key || '';
                         if (!key) return t('none');
@@ -2392,18 +2533,11 @@
                 anthropic_base_url: document.getElementById('upstreamAnthropicBaseUrl').value || undefined
             };
 
-            if (authType === 'codex') {
-                upstream.api_type = 'chatgpt_codex';
-                upstream.support_chat_completions = false;
+            if (authType === 'anthropic_oauth' || authType === 'codex_oauth' ) {
+                upstream.auth = { type: authType };
+                upstream.support_chat_completions = true;
                 upstream.support_responses = true;
-                upstream.support_anthropic_messages = false;
-                upstream.anthropic_base_url = undefined;
-                upstream.auth = {
-                    type: 'oauth_device',
-                    client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
-                    device_auth_url: 'https://auth.openai.com/api/accounts/deviceauth/usercode',
-                    token_url: 'https://auth.openai.com/api/accounts/deviceauth/token'
-                };
+                upstream.support_anthropic_messages = true;
             } else {
                 const apiKey = document.getElementById('upstreamApiKey').value || null;
                 upstream.api_key = apiKey;
@@ -2439,10 +2573,8 @@
             document.getElementById('upstreamAnthropicBaseUrl').value = u.anthropic_base_url || '';
             toggleAnthropicBaseUrl();
 
-            if (isCodexUpstream(u)) {
-                document.getElementById('upstreamAuthType').value = 'codex';
-            } else if (u.auth && u.auth.type === 'oauth_device') {
-                document.getElementById('upstreamAuthType').value = 'codex';
+            if (u.auth && (u.auth.type === 'anthropic_oauth' || u.auth.type === 'codex_oauth')) {
+                document.getElementById('upstreamAuthType').value = u.auth.type;
             } else {
                 document.getElementById('upstreamAuthType').value = 'api_key';
                 const key = (u.auth && u.auth.type === 'api_key' && u.auth.key) || u.api_key || '';
@@ -2480,7 +2612,7 @@
             }
 
             // For OAuth, we can't test connection from the modal
-            if (authType === 'oauth_device') {
+            if (authType === 'anthropic_oauth' || authType === 'codex_oauth') {
                 showStatus('OAuth 上游请先保存配置并完成登录后再测试', 'loading');
                 return;
             }
@@ -2518,11 +2650,6 @@
             try {
                 const response = await fetch('/api/config');
                 config = await response.json();
-                // Set global toggle state
-                const toggle = document.getElementById('allow_protocol_conversion');
-                if (toggle) {
-                    toggle.checked = config.allow_protocol_conversion === true;
-                }
                 renderUpstreams();
                 renderAliases();
                 renderAggregatedModels();

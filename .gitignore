@@ -32,3 +32,6 @@ logs/
 
 # 调试数据
 debug*.json
+
+# Token 缓存
+.llm-wrapper/

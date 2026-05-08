@@ -62,7 +62,6 @@ fn test_save_and_load_config() {
         upstreams: vec![UpstreamConfig {
             name: "test".to_string(),
             base_url: "http://localhost:8080".to_string(),
-            api_type: ApiType::default(),
             auth: UpstreamAuth::ApiKey {
                 key: Some("key".to_string()),
             },
@@ -80,7 +79,8 @@ fn test_save_and_load_config() {
             source: ModelAliasSource::Manual,
             max_model_len: None,
         }],
-        allow_protocol_conversion: false,
+        cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
+        cli_proxy_api_api_key: None,
     };
 
     save_config(&config_path, &original_config).unwrap();
@@ -104,7 +104,6 @@ fn test_save_config_with_param_overrides() {
         upstreams: vec![UpstreamConfig {
             name: "test".to_string(),
             base_url: "http://localhost:8080".to_string(),
-            api_type: ApiType::default(),
             auth: UpstreamAuth::ApiKey { key: None },
             enabled: true,
             support_chat_completions: true,
@@ -124,7 +123,8 @@ fn test_save_config_with_param_overrides() {
             source: ModelAliasSource::Manual,
             max_model_len: None,
         }],
-        allow_protocol_conversion: false,
+        cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
+        cli_proxy_api_api_key: None,
     };
 
     save_config(&config_path, &config).unwrap();
@@ -201,56 +201,4 @@ fn test_new_fields_roundtrip() {
     assert_eq!(config.upstreams[0].support_chat_completions, true);
     assert_eq!(config.upstreams[0].support_responses, true);
     assert_eq!(config.upstreams[0].support_anthropic_messages, true);
-}
-
-#[test]
-fn test_codex_forces_responses_only() {
-    let dir = create_temp_file(
-        r#"
-        upstreams:
-          - name: codex-upstream
-            base_url: https://chatgpt.com/backend-api
-            api_type: chatgpt_codex
-            enabled: true
-            support_chat_completions: true
-            support_anthropic_messages: true
-        aliases: []
-        "#,
-    );
-    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
-    let config = load_config(&config_path).unwrap();
-
-    // Codex 强制只支持 responses
-    assert_eq!(config.upstreams[0].support_chat_completions, false);
-    assert_eq!(config.upstreams[0].support_responses, true);
-    assert_eq!(config.upstreams[0].support_anthropic_messages, false);
-}
-
-#[test]
-fn test_allow_protocol_conversion_default() {
-    let dir = create_temp_file(
-        r#"
-        upstreams: []
-        aliases: []
-        "#,
-    );
-    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
-    let config = load_config(&config_path).unwrap();
-
-    assert_eq!(config.allow_protocol_conversion, false);
-}
-
-#[test]
-fn test_allow_protocol_conversion_true() {
-    let dir = create_temp_file(
-        r#"
-        upstreams: []
-        aliases: []
-        allow_protocol_conversion: true
-        "#,
-    );
-    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
-    let config = load_config(&config_path).unwrap();
-
-    assert_eq!(config.allow_protocol_conversion, true);
 }
