@@ -854,15 +854,8 @@ codex-header-defaults:
                                 true
                             }
                             Ok(None) => {
-                                // 进程存活，检查 HTTP 健康
-                                match Self::health_check_http(&s.endpoint).await {
-                                    Ok(false) => {
-                                        warn!("CLIProxyAPI health check failed, restarting...");
-                                        s.running = false;
-                                        true
-                                    }
-                                    _ => false,
-                                }
+                                // 本地子进程存活即可，无需 HTTP 健康检查
+                                false
                             }
                             Err(e) => {
                                 error!("Error checking CLIProxyAPI process: {}", e);
