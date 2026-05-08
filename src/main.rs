@@ -83,7 +83,7 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+                .unwrap_or_else(|_| "info,actix_web::middleware::logger=info,actix_server=warn".into()),
         )
         .with(
             tracing_subscriber::fmt::layer()
