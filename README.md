@@ -1,14 +1,16 @@
 # LLM Wrapper
 
-A lightweight OpenAI protocol aggregation wrapper, similar to litellm but more minimal.
+A lightweight LLM protocol aggregation wrapper, similar to litellm but more minimal.
 
 [中文文档](README_zh.md)
 
 ## Features
 
-- **Multi-upstream Aggregation**: Configure multiple upstream OpenAI-compatible APIs
+- **Multi-upstream Aggregation**: Configure multiple upstream LLM APIs
+- **Multi-protocol Support**: Chat Completions, Responses, Anthropic Messages with automatic conversion
 - **Model Aliases**: Define local aliases for upstream models
 - **Parameter Settings**: Supports `override` (force) and `default` (fallback) modes
+- **CLIProxyAPI Auth**: Built-in OAuth management for Claude/Codex upstreams via CLIProxyAPI sidecar
 - **Hot Config Reload**: WebUI config changes take effect immediately without restart
 - **YAML Configuration**: Persistent config file support
 - **Single-file WebUI**: Management interface built with pure HTML + JS
@@ -16,6 +18,16 @@ A lightweight OpenAI protocol aggregation wrapper, similar to litellm but more m
 - **Auto Alias**: One-click passthrough alias creation by clicking upstream model tags
 
 ## Quick Start
+
+### Prerequisites
+
+CLIProxyAPI is included as a git submodule. Clone with submodule:
+
+```bash
+git clone --recursive <repo-url>
+# Or if already cloned:
+git submodule update --init
+```
 
 ### Build
 
@@ -37,11 +49,21 @@ cargo build --release
 docker run -d \
   --name llm-wrapper \
   -p 3000:3000 \
+  -p 8317:8317 \
   -v $(pwd)/config:/app/config \
+  -v llm-wrapper-data:/app/.llm-wrapper \
   -e BIND_ADDR=0.0.0.0:3000 \
   -e CONFIG_PATH=/app/config/config.yaml \
   sczhengyabin/llm-wrapper:latest
 ```
+
+Ports:
+- `3000` - Main API and WebUI
+- `8317` - CLIProxyAPI (OAuth management for Claude/Codex)
+
+Volumes:
+- `/app/config` - Configuration directory
+- `/app/.llm-wrapper` - Token cache and CLIProxyAPI data
 
 **With docker-compose:**
 
@@ -59,6 +81,7 @@ docker-compose down
 **Build image locally (optional):**
 
 ```bash
+git submodule update --init
 docker build -t llm-wrapper:latest .
 ```
 
@@ -70,15 +93,29 @@ docker build -t llm-wrapper:latest .
 ## Configuration Example
 
 ```yaml
+# CLIProxyAPI endpoint (for OAuth upstreams, default: http://127.0.0.1:8317)
+cli_proxy_api_endpoint: http://127.0.0.1:8317
+
 # Upstream config (name as unique identifier)
 upstreams:
   - name: qwen-test
     base_url: http://192.168.100.7:30002
-    api_key: null  # or "your-api-key"
+    auth:
+      type: api_key
+      key: null  # or "your-api-key"
     enabled: true
-    support_openai: true      # Supports OpenAI protocol (chat/completions, responses)
-    support_anthropic: false   # Does not support Anthropic protocol (messages)
-    # models_url: http://192.168.100.7:30002/v1/models  # Optional, defaults to {base_url}/v1/models
+    support_chat_completions: true   # Supports OpenAI chat/completions
+    support_responses: false          # Supports OpenAI responses
+    support_anthropic_messages: false # Supports Anthropic messages
+
+  - name: claude
+    base_url: https://api.anthropic.com
+    auth:
+      type: anthropic_oauth  # OAuth managed by CLIProxyAPI
+    enabled: true
+    support_chat_completions: false
+    support_responses: false
+    support_anthropic_messages: true
 
 # Model alias config
 aliases:
@@ -96,6 +133,26 @@ aliases:
             enable_thinking: false
         mode: default
     source: manual  # manually created alias
+```
+
+### Auth Types
+
+| Type | Description |
+|------|-------------|
+| `api_key` | Static API key (default) |
+| `anthropic_oauth` | OAuth for Anthropic, managed by CLIProxyAPI |
+| `codex_oauth` | OAuth for Codex, managed by CLIProxyAPI |
+
+### CLIProxyAPI Auth Flow
+
+For `anthropic_oauth` / `codex_oauth` upstreams, login via WebUI or API:
+
+```bash
+# Start login
+curl -X POST http://localhost:3000/api/cli-proxy-api/login/claude
+
+# The response contains an auth URL, open it in browser to authenticate
+# Token is automatically cached and refreshed
 ```
 
 ## Routing Rules
@@ -119,6 +176,18 @@ This means:
 
 - `GET /api/upstream-models` - Get model list from all upstreams
 - `POST /api/upstream-models/alias` - Create auto alias for upstream model
+
+### Authentication
+
+- `POST /api/auth/login/{upstream_name}` - OAuth login for upstream
+- `DELETE /api/auth/token/{upstream_name}` - Clear OAuth token
+
+### CLIProxyAPI Auth
+
+- `POST /api/cli-proxy-api/login/{upstream_name}` - Start CLIProxyAPI login
+- `POST /api/cli-proxy-api/complete-login/{upstream_name}` - Complete login callback
+- `GET /api/cli-proxy-api/login-stream/{upstream_name}` - SSE login progress
+- `GET /api/cli-proxy-api/status` - Get CLIProxyAPI account status
 
 ### OpenAI Compatible API
 

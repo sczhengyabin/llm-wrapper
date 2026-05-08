@@ -1,12 +1,14 @@
 # LLM Wrapper
 
-一个轻量级的 OpenAI 协议聚合 wrapper，类似 litellm 但功能更精简。
+一个轻量级的 LLM 协议聚合 wrapper，类似 litellm 但功能更精简。
 
 ## 功能特点
 
-- **多上游聚合**：支持配置多个上游 OpenAI 兼容 API
+- **多上游聚合**：支持配置多个上游 LLM API
+- **多协议支持**：Chat Completions、Responses、Anthropic Messages，支持自动协议转换
 - **模型别名**：为上游模型定义本地别名
 - **参数设置**：支持 `override`（覆盖）和 `default`（默认）两种模式
+- **CLIProxyAPI 认证**：内置 OAuth 管理，通过 CLIProxyAPI 侧车管理 Claude/Codex 账号
 - **配置热更新**：WebUI 修改配置后无需重启立即生效
 - **YAML 配置**：支持配置文件持久化
 - **单文件 WebUI**：纯 HTML + JS 实现的管理界面
@@ -14,6 +16,16 @@
 - **Auto Alias**：点击上游模型标签一键创建透传别名
 
 ## 快速开始
+
+### 前置准备
+
+CLIProxyAPI 以 git 子模块方式集成，克隆时请包含子模块：
+
+```bash
+git clone --recursive <仓库地址>
+# 或已克隆后：
+git submodule update --init
+```
 
 ### 构建
 
@@ -35,11 +47,21 @@ cargo build --release
 docker run -d \
   --name llm-wrapper \
   -p 3000:3000 \
+  -p 8317:8317 \
   -v $(pwd)/config:/app/config \
+  -v llm-wrapper-data:/app/.llm-wrapper \
   -e BIND_ADDR=0.0.0.0:3000 \
   -e CONFIG_PATH=/app/config/config.yaml \
   sczhengyabin/llm-wrapper:latest
 ```
+
+端口说明：
+- `3000` - 主 API 和 WebUI
+- `8317` - CLIProxyAPI（Claude/Codex OAuth 管理）
+
+数据卷：
+- `/app/config` - 配置文件目录
+- `/app/.llm-wrapper` - Token 缓存和 CLIProxyAPI 数据
 
 **使用 docker-compose：**
 
@@ -57,6 +79,7 @@ docker-compose down
 **本地构建镜像（可选）：**
 
 ```bash
+git submodule update --init
 docker build -t llm-wrapper:latest .
 ```
 
@@ -68,15 +91,29 @@ docker build -t llm-wrapper:latest .
 ## 配置示例
 
 ```yaml
+# CLIProxyAPI 端点地址（OAuth 上游使用，默认：http://127.0.0.1:8317）
+cli_proxy_api_endpoint: http://127.0.0.1:8317
+
 # 上游配置（name 作为唯一标识）
 upstreams:
   - name: qwen-test
     base_url: http://192.168.100.7:30002
-    api_key: null  # 或 "your-api-key"
+    auth:
+      type: api_key
+      key: null  # 或 "your-api-key"
     enabled: true
-    support_openai: true      # 支持 OpenAI 协议 (chat/completions, responses)
-    support_anthropic: false   # 不支持 Anthropic 协议 (messages)
-    # models_url: http://192.168.100.7:30002/v1/models  # 可选，默认 {base_url}/v1/models
+    support_chat_completions: true   # 支持 OpenAI chat/completions
+    support_responses: false          # 支持 OpenAI responses
+    support_anthropic_messages: false # 不支持 Anthropic messages
+
+  - name: claude
+    base_url: https://api.anthropic.com
+    auth:
+      type: anthropic_oauth  # OAuth 由 CLIProxyAPI 管理
+    enabled: true
+    support_chat_completions: false
+    support_responses: false
+    support_anthropic_messages: true
 
 # 模型别名配置
 aliases:
@@ -94,6 +131,26 @@ aliases:
             enable_thinking: false
         mode: default
     source: manual  # 手动创建的别名
+```
+
+### 认证类型
+
+| 类型 | 说明 |
+|------|------|
+| `api_key` | 静态 API 密钥（默认） |
+| `anthropic_oauth` | Anthropic OAuth，由 CLIProxyAPI 管理 |
+| `codex_oauth` | Codex OAuth，由 CLIProxyAPI 管理 |
+
+### CLIProxyAPI 认证流程
+
+对于 `anthropic_oauth` / `codex_oauth` 类型的上游，通过 WebUI 或 API 登录：
+
+```bash
+# 启动登录
+curl -X POST http://localhost:3000/api/cli-proxy-api/login/claude
+
+# 响应中包含认证 URL，在浏览器中打开完成认证
+# Token 会自动缓存和刷新
 ```
 
 ## 路由规则
@@ -117,6 +174,18 @@ aliases:
 
 - `GET /api/upstream-models` - 获取所有上游的模型列表
 - `POST /api/upstream-models/alias` - 创建上游模型的 auto alias
+
+### 认证
+
+- `POST /api/auth/login/{upstream_name}` - 上游 OAuth 登录
+- `DELETE /api/auth/token/{upstream_name}` - 清除 OAuth token
+
+### CLIProxyAPI 认证
+
+- `POST /api/cli-proxy-api/login/{upstream_name}` - 启动 CLIProxyAPI 登录
+- `POST /api/cli-proxy-api/complete-login/{upstream_name}` - 完成登录回调
+- `GET /api/cli-proxy-api/login-stream/{upstream_name}` - SSE 登录进度推送
+- `GET /api/cli-proxy-api/status` - 获取 CLIProxyAPI 账号状态
 
 ### OpenAI 兼容 API
 
