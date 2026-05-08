@@ -294,6 +294,102 @@ codex-header-defaults:
         })
     }
 
+    /// 解析 CLIProxyAPI 日志行并重写为 tracing 格式
+    /// CLIProxyAPI 格式: [YYYY-MM-DD HH:MM:SS] [--------] [level ] [file:line] message
+    fn parse_cli_proxy_api_log(line: &str) {
+        let line = line.trim();
+        if line.is_empty() {
+            return;
+        }
+
+        // 找前四个 ']' 的位置来提取字段，第四个 ']' 之后的都是消息
+        let mut close_brackets = Vec::new();
+        for (i, c) in line.char_indices() {
+            if c == ']' {
+                close_brackets.push(i);
+                if close_brackets.len() == 4 {
+                    break;
+                }
+            }
+        }
+
+        if close_brackets.len() >= 4 {
+            let ts_str = line[1..close_brackets[0]].trim();
+            let _ctx = line[close_brackets[0]+3..close_brackets[1]].trim(); // request ID
+            let level_str = line[close_brackets[1]+3..close_brackets[2]].trim();
+            let src = line[close_brackets[2]+3..close_brackets[3]].trim();
+            let msg = line[close_brackets[3]+1..].trim();
+
+            if msg.is_empty() {
+                return; // 无消息内容，跳过
+            }
+
+            let message = format!("[{}] {}", src, msg);
+
+            let level = match level_str.to_lowercase().as_str() {
+                "error" | "err" => tracing::Level::ERROR,
+                "warn"  => tracing::Level::WARN,
+                "info"  => tracing::Level::INFO,
+                "debug" => tracing::Level::DEBUG,
+                _       => tracing::Level::TRACE,
+            };
+
+            let iso_ts = ts_str.replace(' ', "T");
+            let (level_tag, color) = match level {
+                tracing::Level::ERROR => ("ERROR", "\x1b[31m"),  // red
+                tracing::Level::WARN  => ("WARN",  "\x1b[33m"),  // yellow
+                tracing::Level::INFO  => ("INFO",  "\x1b[32m"),  // green
+                tracing::Level::DEBUG => ("DEBUG", "\x1b[36m"),  // cyan
+                tracing::Level::TRACE => ("TRACE", "\x1b[90m"),  // dim
+            };
+            let reset = "\x1b[0m";
+            let dim = "\x1b[2m";
+            let blue = "\x1b[34m";
+            eprintln!("{}{}Z{}  {}{}{} {}{}cli_proxy_api{}: {}", dim, iso_ts, reset, color, level_tag, reset, dim, blue, reset, message);
+            return;
+        }
+
+        // Fallback: 不是标准格式，直接输出
+        debug!("[cli_proxy_api] {}", line);
+    }
+
+    /// 在后台消费并重写 CLIProxyAPI 日志格式（使用 BufReader 按行读取，避免跨 chunk 断行）
+    fn spawn_log_drain(
+        stdout: tokio::process::ChildStdout,
+        stderr: tokio::process::ChildStderr,
+        pid: u32,
+    ) {
+        info!("CLIProxyAPI[{}] starting log drain", pid);
+
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => Self::parse_cli_proxy_api_log(&line),
+                    Err(_) => break,
+                }
+            }
+        });
+
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(stderr);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => Self::parse_cli_proxy_api_log(&line),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     fn find_binary(cli_proxy_api_dir: &PathBuf) -> anyhow::Result<PathBuf> {
         let candidates: Vec<PathBuf> = [
             // 配置文件同级的 cli-proxy-api 目录
@@ -590,10 +686,19 @@ codex-header-defaults:
 
         let mut child = tokio::process::Command::new(&binary)
             .arg(format!("--config={}", config_path.display()))
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .spawn()
             .context("Failed to spawn CLIProxyAPI process")?;
+
+        let pid = child.id().unwrap_or(0);
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        Self::spawn_log_drain(
+            stdout.expect("stdout piped"),
+            stderr.expect("stderr piped"),
+            pid,
+        );
 
         let ready = self.wait_ready(&endpoint).await;
 
@@ -806,14 +911,30 @@ codex-header-defaults:
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
 
+        // 如果端口仍有外部进程（如登录自动启动的），也杀掉
+        if Self::health_check_http(endpoint).await.unwrap_or(false) {
+            info!("External CLIProxyAPI still on port during restart, killing...");
+            let _ = Self::kill_process_on_port(endpoint).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
         let binary = Self::find_binary(cli_proxy_api_dir)?;
 
         let mut child = tokio::process::Command::new(&binary)
             .arg(format!("--config={}", config_path.display()))
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .spawn()
             .context("Failed to spawn CLIProxyAPI process")?;
+
+        let pid = child.id().unwrap_or(0);
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        Self::spawn_log_drain(
+            stdout.expect("stdout piped"),
+            stderr.expect("stderr piped"),
+            pid,
+        );
 
         let mut ready = false;
         for _ in 0..30 {

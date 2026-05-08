@@ -83,9 +83,19 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "llm_wrapper=debug".into()),
+                .unwrap_or_else(|_| "info".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_timer(
+                    tracing_subscriber::fmt::time::OffsetTime::new(
+                        time::UtcOffset::UTC,
+                        time::macros::format_description!(
+                            "[year]-[month]-[day]T[hour]:[minute]:[second]Z"
+                        ),
+                    ),
+                ),
+        )
         .init();
 
     // 初始化配置

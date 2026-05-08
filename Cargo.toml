@@ -32,7 +32,8 @@ http-body = "1"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+time = { version = "0.3", features = ["macros"] }
 
 # Error handling
 anyhow = "1.0"
