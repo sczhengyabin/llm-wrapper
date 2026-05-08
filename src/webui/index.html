@@ -28,6 +28,17 @@
         }
         .header-bar h1 {
             margin-bottom: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .version-badge {
+            font-size: 12px;
+            background: #e9ecef;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #666;
+            font-weight: normal;
         }
         .lang-switch {
             display: flex;
@@ -767,7 +778,7 @@
 <body>
     <div class="container">
         <div class="header-bar">
-            <h1 data-i18n="page_title">LLM Wrapper 配置</h1>
+            <h1><span data-i18n="page_title">LLM Wrapper 配置</span> <span class="version-badge" id="versionBadge">v0.0.0</span></h1>
             <div class="lang-switch">
                 <button class="lang-btn active" onclick="switchLang('zh')">中文</button>
                 <button class="lang-btn" onclick="switchLang('en')">EN</button>
@@ -1302,6 +1313,16 @@
             response: null
         };
 
+        async function loadVersion() {
+            try {
+                const resp = await fetch('/api/version');
+                const data = await resp.json();
+                document.getElementById('versionBadge').textContent = 'v' + data.version;
+            } catch(e) {
+                document.getElementById('versionBadge').textContent = 'v?';
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             // Restore language preference
             try {
@@ -1311,6 +1332,7 @@
                     applyI18n();
                 }
             } catch(e) {}
+            loadVersion();
             loadConfig();
         });
 

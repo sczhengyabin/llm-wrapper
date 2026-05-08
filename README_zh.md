@@ -39,6 +39,19 @@ cargo build --release
 ./target/release/llm-wrapper
 ```
 
+### 命令行参数
+
+```bash
+llm-wrapper -c config.yaml -a 0.0.0.0:3000
+
+-c, --config <PATH>   配置文件路径（默认：config.yaml）
+-a, --addr <ADDR>     监听地址（默认：0.0.0.0:3000）
+-v, --version         显示版本号
+-h, --help            显示帮助
+```
+
+命令行参数优先级高于环境变量。
+
 ### Docker 部署
 
 **使用 Docker 运行（推荐）：**

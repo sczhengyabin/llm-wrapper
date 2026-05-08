@@ -41,6 +41,19 @@ cargo build --release
 ./target/release/llm-wrapper
 ```
 
+### CLI Arguments
+
+```bash
+llm-wrapper -c config.yaml -a 0.0.0.0:3000
+
+-c, --config <PATH>   Config file path (default: config.yaml)
+-a, --addr <ADDR>     Bind address (default: 0.0.0.0:3000)
+-v, --version         Print version
+-h, --help            Print help
+```
+
+CLI args take precedence over environment variables.
+
 ### Docker Deployment
 
 **Run with Docker (Recommended):**

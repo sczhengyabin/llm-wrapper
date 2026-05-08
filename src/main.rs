@@ -77,8 +77,67 @@ impl DebugStreamHub {
     }
 }
 
+fn print_usage() {
+    println!(
+        "LLM Wrapper v{}\n\n\
+         Usage: llm-wrapper [OPTIONS]\n\n\
+         Options:\n\
+           -c, --config <PATH>  Config file path (default: config.yaml)\n\
+           -a, --addr <ADDR>    Bind address (default: 0.0.0.0:3000)\n\
+           -v, --version        Print version\n\
+           -h, --help           Print help\n\
+         \n\
+         Environment Variables:\n\
+           CONFIG_PATH          Same as --config\n\
+           BIND_ADDR            Same as --addr\n\
+           RUST_LOG             Log level (default: info)",
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+fn print_version() {
+    println!("llm-wrapper {}", env!("CARGO_PKG_VERSION"));
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // 解析命令行参数
+    let args: Vec<String> = std::env::args().collect();
+    let mut config_path = None;
+    let mut bind_addr = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-v" | "--version" => {
+                print_version();
+                std::process::exit(0);
+            }
+            "-h" | "--help" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            "-c" | "--config" => {
+                i += 1;
+                if i < args.len() {
+                    config_path = Some(args[i].clone());
+                }
+            }
+            "-a" | "--addr" => {
+                i += 1;
+                if i < args.len() {
+                    bind_addr = Some(args[i].clone());
+                }
+            }
+            _ => {
+                eprintln!("Unknown argument: {}", args[i]);
+                print_usage();
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
     // 初始化日志
     tracing_subscriber::registry()
         .with(
@@ -98,8 +157,13 @@ async fn main() -> std::io::Result<()> {
         )
         .init();
 
-    // 初始化配置
-    let config_path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.yaml".to_string());
+    // 打印版本信息
+    info!("LLM Wrapper v{}", env!("CARGO_PKG_VERSION"));
+
+    // 命令行参数优先，其次环境变量，最后默认值
+    let config_path = config_path
+        .or_else(|| std::env::var("CONFIG_PATH").ok())
+        .unwrap_or_else(|| "config.yaml".to_string());
     let config_manager = ConfigManager::new(&config_path)
         .await
         .expect("无法加载配置");
@@ -155,9 +219,9 @@ async fn main() -> std::io::Result<()> {
     });
 
     // 启动服务器
-    let addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+    let addr = bind_addr.unwrap_or_else(|| std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string()));
 
-    info!("LLM Wrapper 启动在 http://{}", addr);
+    info!("LLM Wrapper v{} 启动在 http://{}", env!("CARGO_PKG_VERSION"), addr);
     info!("WebUI 访问 http://{}/", addr);
     info!("API 端点 http://{}/v1/chat/completions", addr);
 
@@ -205,6 +269,7 @@ async fn main() -> std::io::Result<()> {
                 "/api/cli-proxy-api/status",
                 web::get().to(cli_proxy_api_status),
             )
+            .route("/api/version", web::get().to(get_version))
             .route("/api/debug", web::get().to(get_debug_data))
             .route("/api/debug", web::delete().to(clear_debug_data))
             .route("/api/debug/stream", web::get().to(debug_stream))
@@ -418,6 +483,12 @@ async fn handle_protocol_request(
             }
         }
     }
+}
+
+async fn get_version() -> HttpResponse {
+    HttpResponse::Ok().json(json!({
+        "version": env!("CARGO_PKG_VERSION")
+    }))
 }
 
 async fn get_debug_data(state: web::Data<AppState>) -> HttpResponse {
