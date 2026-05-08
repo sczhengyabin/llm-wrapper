@@ -730,13 +730,27 @@ codex-header-defaults:
             .next()
             .unwrap_or("8317");
 
-        // 使用 lsof 查找占用端口的进程 PID，然后 kill
-        let output = tokio::process::Command::new("lsof")
-            .args(["-ti", &format!(":{}", port)])
+        // 优先尝试 fuser（procps-ng，Docker 友好）
+        let output = tokio::process::Command::new("fuser")
+            .args(["-k", "-9", &format!(":{}", port)])
             .output()
             .await;
 
         match output {
+            Ok(result) if result.status.success() => {
+                info!("Killed process on port {} via fuser", port);
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // 尝试 lsof + kill（macOS / 完整系统）
+        let output2 = tokio::process::Command::new("lsof")
+            .args(["-ti", &format!(":{}", port)])
+            .output()
+            .await;
+
+        match output2 {
             Ok(result) if result.status.success() => {
                 let pids = String::from_utf8_lossy(&result.stdout);
                 for pid_str in pids.lines() {
@@ -749,24 +763,25 @@ codex-header-defaults:
                             .await;
                     }
                 }
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // 最后尝试 pkill
+        let output3 = tokio::process::Command::new("pkill")
+            .arg("-9")
+            .arg("-f")
+            .arg("CLIProxyAPI")
+            .output()
+            .await;
+
+        match output3 {
+            Ok(r) if r.status.success() => {
+                info!("Killed CLIProxyAPI via pkill");
                 Ok(())
             }
-            _ => {
-                // lsof 不可用，尝试 pkill
-                let output2 = tokio::process::Command::new("pkill")
-                    .arg("-9")
-                    .arg("-f")
-                    .arg("CLIProxyAPI")
-                    .output()
-                    .await;
-                match output2 {
-                    Ok(r) if r.status.success() => {
-                        info!("Killed CLIProxyAPI via pkill");
-                        Ok(())
-                    }
-                    _ => Err(anyhow::anyhow!("cannot find process on port {}", port)),
-                }
-            }
+            _ => Err(anyhow::anyhow!("cannot find process on port {}", port)),
         }
     }
 

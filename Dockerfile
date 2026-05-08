@@ -23,7 +23,7 @@ RUN cargo build --release && \
     strip target/release/llm-wrapper
 
 # Go 构建阶段（CLIProxyAPI）
-FROM golang:1.24-alpine AS go-builder
+FROM golang:1.26-alpine AS go-builder
 WORKDIR /CLIProxyAPI
 COPY CLIProxyAPI/go.mod CLIProxyAPI/go.sum ./
 RUN go mod download
@@ -39,6 +39,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
+    wget \
+    psmisc \
     && rm -rf /var/lib/apt/lists/*
 
 # 从构建阶段复制二进制文件和 webui
