@@ -13,6 +13,7 @@ mod cli_proxy_api_proxy;
 
 use actix_cors::Cors;
 use actix_files as fs;
+use actix_web::dev::Server;
 use actix_web::{middleware, web, App, Error, HttpResponse, HttpServer};
 use config::ConfigManager;
 use futures::{Stream, StreamExt};
@@ -141,6 +142,8 @@ async fn main() -> std::io::Result<()> {
 
     let debug_store = web::Data::new(DebugDataStore::default());
     let stream_hub = web::Data::new(DebugStreamHub::new());
+    // 保留一份 manager 引用用于信号处理
+    let cli_proxy_api_manager_for_shutdown = cli_proxy_api_manager.clone();
     let state = web::Data::new(AppState {
         config: config_manager,
         auth_manager,
@@ -156,7 +159,7 @@ async fn main() -> std::io::Result<()> {
     info!("WebUI 访问 http://{}/", addr);
     info!("API 端点 http://{}/v1/chat/completions", addr);
 
-    HttpServer::new(move || {
+    let server: Server = HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
             .app_data(web::JsonConfig::default().limit(32 * 1024 * 1024)) // 32MB，支持 256K token 上下文
@@ -214,8 +217,25 @@ async fn main() -> std::io::Result<()> {
             .service(fs::Files::new("/webui", "src/webui").index_file("index.html"))
     })
     .bind(&addr)?
-    .run()
-    .await
+    .run();
+
+    let server_handle = server.handle();
+
+    // 信号处理：SIGINT/SIGTERM 时优雅关闭 CLIProxyAPI 和 HTTP 服务器
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("Received shutdown signal, stopping services...");
+
+        // 先停止 CLIProxyAPI 子进程
+        if let Some(ref mgr) = cli_proxy_api_manager_for_shutdown {
+            mgr.stop().await;
+        }
+
+        // 优雅关闭 HTTP 服务器
+        server_handle.stop(false).await;
+    });
+
+    server.await
 }
 
 async fn get_config(state: web::Data<AppState>) -> HttpResponse {

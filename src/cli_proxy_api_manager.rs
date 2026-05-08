@@ -295,10 +295,14 @@ codex-header-defaults:
     }
 
     fn find_binary(cli_proxy_api_dir: &PathBuf) -> anyhow::Result<PathBuf> {
-        let candidates = [
+        let candidates: Vec<PathBuf> = [
+            // 配置文件同级的 cli-proxy-api 目录
             cli_proxy_api_dir.join("CLIProxyAPI"),
             cli_proxy_api_dir.join("CLIProxyAPI.exe"),
-        ];
+            // Docker 等部署环境的固定路径
+            PathBuf::from("/app/cli-proxy-api/CLIProxyAPI"),
+        ]
+        .to_vec();
         for candidate in &candidates {
             if candidate.exists() {
                 return Ok(candidate.to_path_buf());
@@ -547,17 +551,34 @@ codex-header-defaults:
         Ok(())
     }
 
-    /// 启动 CLIProxyAPI 进程
+    /// 启动 CLIProxyAPI 进程（严格管理生命周期，不借用外部进程）
     pub async fn start(&self) -> anyhow::Result<()> {
         let mut state = self.state.lock().await;
         if state.running {
             return Ok(());
         }
+
+        let endpoint = state.endpoint.clone();
+
+        // 杀掉所有可能占用端口的进程（自有 child + 外部残留如登录自动启动的）
+        if let Some(mut old_child) = state.child.take() {
+            let _ = old_child.kill().await;
+            let _ = old_child.wait().await;
+        }
+
+        // 如果端口仍有服务在响应（外部进程），查找并杀掉
+        if Self::health_check_http(&endpoint).await.unwrap_or(false) {
+            info!("CLIProxyAPI detected on {}, killing external process", endpoint);
+            if let Err(e) = Self::kill_process_on_port(&endpoint).await {
+                warn!("Failed to kill external CLIProxyAPI: {}", e);
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
         state.shutdown = false;
 
         let config_path = state.config_path.clone();
         let cli_proxy_api_dir = state.cli_proxy_api_dir.clone();
-        let endpoint = state.endpoint.clone();
 
         let binary = Self::find_binary(&cli_proxy_api_dir)?;
 
@@ -576,19 +597,72 @@ codex-header-defaults:
 
         let ready = self.wait_ready(&endpoint).await;
 
-        if ready {
+        let child_alive = child.try_wait().ok().flatten().is_none();
+        if ready && child_alive {
             state.child = Some(child);
             state.running = true;
             info!("CLIProxyAPI started successfully on {}", endpoint);
         } else {
             let _ = child.kill().await;
             state.running = false;
-            return Err(anyhow::anyhow!(
-                "CLIProxyAPI failed to become ready within timeout"
-            ));
+            let reason = if child_alive {
+                "failed to become ready within timeout"
+            } else {
+                "process exited before ready"
+            };
+            return Err(anyhow::anyhow!("CLIProxyAPI {}", reason));
         }
 
         Ok(())
+    }
+
+    /// 查找并杀掉占用端口的进程
+    async fn kill_process_on_port(endpoint: &str) -> anyhow::Result<()> {
+        let port = endpoint
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .rsplit(':')
+            .next()
+            .unwrap_or("8317");
+
+        // 使用 lsof 查找占用端口的进程 PID，然后 kill
+        let output = tokio::process::Command::new("lsof")
+            .args(["-ti", &format!(":{}", port)])
+            .output()
+            .await;
+
+        match output {
+            Ok(result) if result.status.success() => {
+                let pids = String::from_utf8_lossy(&result.stdout);
+                for pid_str in pids.lines() {
+                    if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                        info!("Killing external CLIProxyAPI process {}", pid);
+                        let _ = tokio::process::Command::new("kill")
+                            .arg("-9")
+                            .arg(pid.to_string())
+                            .output()
+                            .await;
+                    }
+                }
+                Ok(())
+            }
+            _ => {
+                // lsof 不可用，尝试 pkill
+                let output2 = tokio::process::Command::new("pkill")
+                    .arg("-9")
+                    .arg("-f")
+                    .arg("CLIProxyAPI")
+                    .output()
+                    .await;
+                match output2 {
+                    Ok(r) if r.status.success() => {
+                        info!("Killed CLIProxyAPI via pkill");
+                        Ok(())
+                    }
+                    _ => Err(anyhow::anyhow!("cannot find process on port {}", port)),
+                }
+            }
+        }
     }
 
     /// 等待 CLIProxyAPI 就绪
@@ -642,7 +716,8 @@ codex-header-defaults:
             loop {
                 tokio::time::sleep(Duration::from_secs(10)).await;
 
-                let should_restart = {
+                // 在锁内决定是否需要重启，并取出旧 child 引用
+                let restart_info = {
                     let mut s = state.lock().await;
                     if s.shutdown {
                         break;
@@ -651,46 +726,66 @@ codex-header-defaults:
                         continue;
                     }
 
-                    let alive = if let Some(ref mut child) = s.child {
+                    let needs_restart = if let Some(ref mut child) = s.child {
                         match child.try_wait() {
                             Ok(Some(status)) => {
                                 warn!("CLIProxyAPI exited with status {}. Restarting...", status);
                                 s.running = false;
-                                false
+                                true
                             }
-                            Ok(None) => true,
+                            Ok(None) => {
+                                // 进程存活，检查 HTTP 健康
+                                match Self::health_check_http(&s.endpoint).await {
+                                    Ok(false) => {
+                                        warn!("CLIProxyAPI health check failed, restarting...");
+                                        s.running = false;
+                                        true
+                                    }
+                                    _ => false,
+                                }
+                            }
                             Err(e) => {
                                 error!("Error checking CLIProxyAPI process: {}", e);
-                                false
+                                s.running = false;
+                                true
                             }
                         }
                     } else {
-                        false
+                        // child = None 但 running = true → 进程丢失，需要重启
+                        warn!("CLIProxyAPI process lost, restarting...");
+                        s.running = false;
+                        true
                     };
 
-                    if !alive {
-                        true
-                    } else if let Ok(false) = Self::health_check_http(&s.endpoint).await {
-                        warn!("CLIProxyAPI health check failed, restarting...");
-                        s.running = false;
-                        if let Some(mut child) = s.child.take() {
-                            let _ = child.kill().await;
-                        }
-                        true
+                    if needs_restart {
+                        // 取出旧 child 引用（解锁后由 restart_inner 负责 kill）
+                        let old_child = s.child.take();
+                        let endpoint = s.endpoint.clone();
+                        let cli_proxy_api_dir = s.cli_proxy_api_dir.clone();
+                        let config_path = s.config_path.clone();
+                        Some((old_child, endpoint, cli_proxy_api_dir, config_path))
                     } else {
-                        false
+                        None
                     }
                 };
 
-                if should_restart {
-                    let endpoint = state.lock().await.endpoint.clone();
-                    let cli_proxy_api_dir = state.lock().await.cli_proxy_api_dir.clone();
-                    let config_path = state.lock().await.config_path.clone();
-
-                    if let Err(e) =
-                        Self::restart_inner(&cli_proxy_api_dir, &config_path, &endpoint).await
+                if let Some((old_child, endpoint, cli_proxy_api_dir, config_path)) = restart_info {
+                    match Self::restart_inner(
+                        &cli_proxy_api_dir,
+                        &config_path,
+                        &endpoint,
+                        old_child,
+                    )
+                    .await
                     {
-                        error!("Failed to restart CLIProxyAPI: {}", e);
+                        Ok(new_child) => {
+                            let mut s = state.lock().await;
+                            s.child = Some(new_child);
+                            s.running = true;
+                        }
+                        Err(e) => {
+                            error!("Failed to restart CLIProxyAPI: {}", e);
+                        }
                     }
                 }
             }
@@ -702,7 +797,15 @@ codex-header-defaults:
         cli_proxy_api_dir: &PathBuf,
         config_path: &PathBuf,
         endpoint: &str,
-    ) -> anyhow::Result<()> {
+        old_child: Option<tokio::process::Child>,
+    ) -> anyhow::Result<tokio::process::Child> {
+        // 先杀掉旧进程，释放端口
+        if let Some(mut old) = old_child {
+            let _ = old.kill().await;
+            let _ = old.wait().await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
         let binary = Self::find_binary(cli_proxy_api_dir)?;
 
         let mut child = tokio::process::Command::new(&binary)
@@ -723,12 +826,18 @@ codex-header-defaults:
             }
         }
 
-        if ready {
+        let child_alive = child.try_wait().ok().flatten().is_none();
+        if ready && child_alive {
             info!("CLIProxyAPI restarted successfully");
-            Ok(())
+            Ok(child)
         } else {
             let _ = child.kill().await;
-            Err(anyhow::anyhow!("CLIProxyAPI restart failed to become ready"))
+            let reason = if child_alive {
+                "failed to become ready within timeout"
+            } else {
+                "process exited before ready"
+            };
+            Err(anyhow::anyhow!("CLIProxyAPI restart: {}", reason))
         }
     }
 }

@@ -1,5 +1,5 @@
-# 构建阶段
-FROM rust:1.88-slim AS builder
+# Rust 构建阶段
+FROM rust:1.88-slim AS rust-builder
 
 WORKDIR /app
 
@@ -22,34 +22,29 @@ COPY src ./src
 RUN cargo build --release && \
     strip target/release/llm-wrapper
 
-# auth2api 构建阶段
-FROM node:20-slim AS auth2api-builder
-WORKDIR /auth2api
-COPY auth2api/package.json auth2api/package-lock.json ./
-RUN npm ci --production
-COPY auth2api/src ./src
-COPY auth2api/tsconfig.json ./
-RUN npx tsc
+# Go 构建阶段（CLIProxyAPI）
+FROM golang:1.24-alpine AS go-builder
+WORKDIR /CLIProxyAPI
+COPY CLIProxyAPI/go.mod CLIProxyAPI/go.sum ./
+RUN go mod download
+COPY CLIProxyAPI/ ./
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o CLIProxyAPI ./cmd/server/
 
 # 运行阶段
 FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# 安装运行时依赖 (含 Node.js 用于 auth2api)
+# 安装运行时依赖
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# 从构建阶段复制二进制文件、webui 和 auth2api
-COPY --from=builder /app/target/release/llm-wrapper /app/llm-wrapper
-COPY --from=builder /app/src/webui /app/src/webui
-COPY --from=auth2api-builder /auth2api/dist /app/auth2api/dist
-COPY --from=auth2api-builder /auth2api/node_modules /app/auth2api/node_modules
-COPY --from=auth2api-builder /auth2api/package.json /app/auth2api/
+# 从构建阶段复制二进制文件和 webui
+COPY --from=rust-builder /app/target/release/llm-wrapper /app/llm-wrapper
+COPY --from=rust-builder /app/src/webui /app/src/webui
+COPY --from=go-builder /CLIProxyAPI/CLIProxyAPI /app/cli-proxy-api/CLIProxyAPI
 
 # 创建配置和 token 目录
 RUN mkdir -p /app/config /app/.llm-wrapper
