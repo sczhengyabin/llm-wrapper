@@ -112,42 +112,34 @@ async fn main() -> std::io::Result<()> {
     let auth_manager = AuthManager::new(Some(&cache_dir));
     auth_manager.load_cache().await;
 
-    // 检查是否需要启动 CLIProxyAPI
+    // 初始化 CLIProxyAPI manager（始终初始化，进程启动按需触发）
     let cli_proxy_api_manager = {
         let config_snapshot = config_manager.get_config().await;
-        let needs_cli_proxy_api = config_snapshot
-            .upstreams
-            .iter()
-            .any(|u| u.enabled && u.auth.is_cli_proxy_api());
 
-        if needs_cli_proxy_api {
-            let cli_proxy_api_dir = std::path::Path::new(&config_path)
-                .parent()
-                .map(|p| p.join("cli-proxy-api"))
-                .unwrap_or_else(|| std::path::PathBuf::from("cli-proxy-api"));
+        let cli_proxy_api_dir = std::path::Path::new(&config_path)
+            .parent()
+            .map(|p| p.join("cli-proxy-api"))
+            .unwrap_or_else(|| std::path::PathBuf::from("cli-proxy-api"));
 
-            let manager = cli_proxy_api_manager::CliProxyApiManager::new(
-                cli_proxy_api_dir.clone(),
-                config_snapshot.cli_proxy_api_endpoint.clone(),
-            );
+        let manager = cli_proxy_api_manager::CliProxyApiManager::new(
+            cli_proxy_api_dir.clone(),
+            config_snapshot.cli_proxy_api_endpoint.clone(),
+        );
 
-            let mgr = Arc::new(manager);
-            // Spawn monitor task for crash recovery (always, even if not started yet)
-            mgr.clone().spawn_monitor();
+        let mgr = Arc::new(manager);
+        // Spawn monitor task for crash recovery
+        mgr.clone().spawn_monitor();
 
-            // Only start CLIProxyAPI process if accounts already exist
-            if mgr.has_accounts().await {
-                if let Err(e) = mgr.start().await {
-                    warn!("Failed to start CLIProxyAPI: {}. CLIProxyAPI upstreams will be unavailable.", e);
-                }
-            } else {
-                info!("No CLIProxyAPI accounts found. Login via WebUI to add an account.");
+        // 仅有账号文件时才启动进程
+        if mgr.has_accounts().await {
+            if let Err(e) = mgr.start().await {
+                warn!("Failed to start CLIProxyAPI: {}. CLIProxyAPI upstreams will be unavailable.", e);
             }
-
-            Some(mgr)
         } else {
-            None
+            info!("No CLIProxyAPI accounts found. Login via WebUI to add an account.");
         }
+
+        Some(mgr)
     };
 
     let debug_store = web::Data::new(DebugDataStore::default());
