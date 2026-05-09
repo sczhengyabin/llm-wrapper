@@ -734,6 +734,10 @@
         .token-status.no-token {
             color: #999;
         }
+        .token-refresh-info {
+            color: #6c757d;
+            font-size: 11px;
+        }
         .oauth-login-modal-body {
             text-align: center;
             padding: 20px;
@@ -1122,6 +1126,12 @@
                 oauth_open_url: "打开登录页面",
                 oauth_login_first: "请先完成登录",
                 oauth_code_copied: "已复制!",
+                token_expires: "Token 过期: ",
+                token_expires_at: "Token 过期时间",
+                token_auto_refresh_hint: "Token 将在过期前5天自动刷新",
+                token_refresh_in: " (预计刷新: ",
+                token_refresh_est: " (预计刷新: ",
+
             },
             en: {
                 page_title: "LLM Wrapper Config",
@@ -1246,6 +1256,11 @@
                 oauth_open_url: "Open login page",
                 oauth_login_first: "Please login first",
                 oauth_code_copied: "Copied!",
+                token_expires: "Token expires: ",
+                token_expires_at: "Token expiration time",
+                token_auto_refresh_hint: "Token will auto-refresh 5 days before expiry",
+                token_refresh_in: " (est. refresh: ",
+                token_refresh_est: " (est. refresh: ",
             }
         };
 
@@ -2043,12 +2058,24 @@
             if (isCLIProxyApiUpstream(upstream)) {
                 const status = CLIProxyAPIAccountStatus[upstream.name];
                 if (status && status.logged_in) {
-                    let expStr = '';
+                    let expHtml = '';
                     if (status.expires_at) {
                         const expires = new Date(status.expires_at);
-                        expStr = ' (' + expires.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + ')';
+                        const expStr = expires.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        expHtml = ' <span title="' + t('token_expires_at') + ' ' + expStr + '">' + t('token_expires') + expStr + '</span>';
+                        // Calculate estimated refresh time (5 days before expiry)
+                        const now = new Date();
+                        const diffDays = (expires - now) / (1000 * 60 * 60 * 24);
+                        if (diffDays > 0 && diffDays <= 5) {
+                            const hours = Math.ceil(diffDays * 24);
+                            expHtml += ' <span class="token-refresh-info" title="' + t('token_auto_refresh_hint') + '">' + t('token_refresh_in') + hours + 'h)</span>';
+                        } else if (diffDays > 5) {
+                            const refreshDate = new Date(expires.getTime() - 5 * 24 * 60 * 60 * 1000);
+                            const refreshStr = refreshDate.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                            expHtml += ' <span class="token-refresh-info">' + t('token_refresh_est') + refreshStr + ')</span>';
+                        }
                     }
-                    return `<div class="token-status valid">${t('oauth_logged_in')}${expStr} (${status.email || ''})</div>`;
+                    return `<div class="token-status valid">${status.email || ''}${expHtml}</div>`;
                 }
                 return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
             }
@@ -2342,6 +2369,7 @@
                                 logged_in: true,
                                 email: acc.email,
                                 expires_at: acc.expiresAt,
+                                lastRefresh: acc.lastRefresh,
                             };
                             renderUpstreams();
                             showStatus('登录成功: ' + acc.email, 'success');
@@ -2373,6 +2401,7 @@
                             logged_in: true,
                             email: acc.email,
                             expires_at: acc.expiresAt,
+                            lastRefresh: acc.lastRefresh,
                         };
                     } else {
                         CLIProxyAPIAccountStatus[upstreamName] = { logged_in: false };
@@ -2416,6 +2445,7 @@
                                     logged_in: true,
                                     email: acc.email,
                                     expires_at: acc.expiresAt,
+                                    lastRefresh: acc.lastRefresh,
                                 };
                             } else {
                                 CLIProxyAPIAccountStatus[up.name] = { logged_in: false };

@@ -1025,7 +1025,8 @@ fn transform_cli_proxy_api_status(body: &serde_json::Value) -> serde_json::Value
             let account = serde_json::json!({
                 "email": file.get("email").and_then(|e| e.as_str()).unwrap_or(""),
                 "status": file.get("status").and_then(|s| s.as_str()).unwrap_or("unknown"),
-                "expiresAt": file.get("expiresAt").and_then(|e| e.as_str()).unwrap_or("")
+                "expiresAt": file.get("expiresAt").and_then(|e| e.as_str()).or_else(|| file.get("expired").and_then(|e| e.as_str())).unwrap_or(""),
+                "lastRefresh": file.get("last_refresh").and_then(|e| e.as_str()).unwrap_or("")
             });
 
             let entry: serde_json::Value =
