@@ -23,6 +23,12 @@ pub struct RouteResult {
     pub cli_proxy_api_endpoint: String,
     /// CLIProxyAPI API key
     pub cli_proxy_api_api_key: Option<String>,
+    /// 上游是否支持 Chat Completions 协议
+    pub support_chat_completions: bool,
+    /// 上游是否支持 Responses 协议
+    pub support_responses: bool,
+    /// 上游是否支持 Anthropic Messages 协议
+    pub support_anthropic_messages: bool,
 }
 
 /// 路由器，处理模型到上游的映射
@@ -62,6 +68,9 @@ impl ModelRouter {
                 use_cli_proxy_api,
                 cli_proxy_api_endpoint: config.cli_proxy_api_endpoint.clone(),
                 cli_proxy_api_api_key: config.cli_proxy_api_api_key.clone(),
+                support_chat_completions: upstream.support_chat_completions,
+                support_responses: upstream.support_responses,
+                support_anthropic_messages: upstream.support_anthropic_messages,
             });
         }
 
@@ -105,6 +114,9 @@ impl ModelRouter {
             use_cli_proxy_api,
             cli_proxy_api_endpoint: config.cli_proxy_api_endpoint.clone(),
             cli_proxy_api_api_key: config.cli_proxy_api_api_key.clone(),
+            support_chat_completions: upstream.support_chat_completions,
+            support_responses: upstream.support_responses,
+            support_anthropic_messages: upstream.support_anthropic_messages,
         })
     }
 

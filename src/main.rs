@@ -397,6 +397,21 @@ async fn handle_protocol_request(
         }
     };
 
+    // 检查上游是否支持当前协议
+    let protocol_supported = match endpoint_path {
+        "/v1/chat/completions" => route.support_chat_completions,
+        "/v1/responses" => route.support_responses,
+        "/v1/messages" => route.support_anthropic_messages,
+        _ => true,
+    };
+    if !protocol_supported {
+        return HttpResponse::BadRequest().json(json!({
+            "error": {
+                "message": format!("上游 '{}' 不支持当前协议端点 ({})", route.upstream_name, endpoint_path)
+            }
+        }));
+    }
+
     // CLIProxyAPI 代理：如果上游使用 CLIProxyAPI 管理的认证，直接转发请求
     if route.use_cli_proxy_api {
         let manager = match &state.cli_proxy_api_manager {
