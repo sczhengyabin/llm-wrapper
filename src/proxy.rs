@@ -207,8 +207,12 @@ pub fn build_endpoint_path_with_query(endpoint_path: &str, query_string: &str) -
     }
 }
 
+pub fn is_anthropic_messages_endpoint(endpoint_path: &str) -> bool {
+    endpoint_path == "/v1/messages" || endpoint_path.starts_with("/v1/messages/")
+}
+
 fn build_upstream_url(route: &RouteResult, endpoint_path: &str, query_string: &str) -> String {
-    let base_url = if endpoint_path == "/v1/messages" {
+    let base_url = if is_anthropic_messages_endpoint(endpoint_path) {
         route
             .anthropic_base_url
             .as_deref()
@@ -224,7 +228,7 @@ pub fn anthropic_passthrough_headers(
     endpoint_path: &str,
     headers: &HeaderMap,
 ) -> Vec<(&'static str, String)> {
-    if endpoint_path != "/v1/messages" {
+    if !is_anthropic_messages_endpoint(endpoint_path) {
         return Vec::new();
     }
 
@@ -341,6 +345,20 @@ mod tests {
     }
 
     #[test]
+    fn test_build_upstream_url_uses_anthropic_base_url_for_messages_subpaths() {
+        let mut route = create_test_route(HashMap::new(), HashMap::new());
+        route.upstream_base_url = "https://example.com/openai/".to_string();
+        route.anthropic_base_url = Some("https://example.com/anthropic/".to_string());
+
+        let url = build_upstream_url(&route, "/v1/messages/count_tokens", "beta=true");
+
+        assert_eq!(
+            url,
+            "https://example.com/anthropic/v1/messages/count_tokens?beta=true"
+        );
+    }
+
+    #[test]
     fn test_anthropic_passthrough_headers_are_limited_to_messages() {
         use actix_web::http::header::HeaderName;
 
@@ -373,6 +391,24 @@ mod tests {
         );
 
         assert!(anthropic_passthrough_headers("/v1/chat/completions", &headers).is_empty());
+    }
+
+    #[test]
+    fn test_anthropic_passthrough_headers_apply_to_messages_subpaths() {
+        use actix_web::http::header::HeaderName;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("anthropic-version"),
+            "2023-06-01".parse().expect("valid header value"),
+        );
+
+        let forwarded = anthropic_passthrough_headers("/v1/messages/count_tokens", &headers);
+
+        assert_eq!(
+            forwarded,
+            vec![("anthropic-version", "2023-06-01".to_string())]
+        );
     }
 
     #[test]

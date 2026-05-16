@@ -277,6 +277,7 @@ async fn main() -> std::io::Result<()> {
             .route("/v1/chat/completions", web::post().to(chat_completions))
             .route("/v1/responses", web::post().to(responses))
             .route("/v1/messages", web::post().to(messages))
+            .route("/v1/messages/{tail:.*}", web::post().to(messages))
             .route("/v1/models/", web::get().to(list_models))
             .route("/v1/models", web::get().to(list_models))
             // WebUI
@@ -351,13 +352,8 @@ async fn messages(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
-    handle_protocol_request(
-        state,
-        body.into_inner(),
-        req,
-        "/v1/messages",
-    )
-    .await
+    let endpoint_path = req.uri().path().to_string();
+    handle_protocol_request(state, body.into_inner(), req, &endpoint_path).await
 }
 
 /// 通用的协议请求处理器
@@ -398,11 +394,14 @@ async fn handle_protocol_request(
     };
 
     // 检查上游是否支持当前协议
-    let protocol_supported = match endpoint_path {
-        "/v1/chat/completions" => route.support_chat_completions,
-        "/v1/responses" => route.support_responses,
-        "/v1/messages" => route.support_anthropic_messages,
-        _ => true,
+    let protocol_supported = if proxy::is_anthropic_messages_endpoint(endpoint_path) {
+        route.support_anthropic_messages
+    } else {
+        match endpoint_path {
+            "/v1/chat/completions" => route.support_chat_completions,
+            "/v1/responses" => route.support_responses,
+            _ => true,
+        }
     };
     if !protocol_supported {
         return HttpResponse::BadRequest().json(json!({
