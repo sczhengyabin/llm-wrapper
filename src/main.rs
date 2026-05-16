@@ -433,11 +433,14 @@ async fn handle_protocol_request(
             }
         }
 
-        let cli_proxy_api_key = Some(manager.api_key().await).or(route.cli_proxy_api_api_key.clone());
+        let cli_proxy_api_key =
+            Some(manager.api_key().await).or(route.cli_proxy_api_api_key.clone());
         return cli_proxy_api_proxy::proxy_to_cli_proxy_api(
             &route.cli_proxy_api_endpoint,
             cli_proxy_api_key.as_deref(),
             endpoint_path,
+            req.query_string(),
+            req.headers(),
             &body,
             Some(&state.debug_data),
             Some(&state.stream_hub),
@@ -454,13 +457,18 @@ async fn handle_protocol_request(
         "{}://{}{}",
         req.connection_info().scheme(),
         req.connection_info().host(),
-        req.uri().path()
+        req.uri()
+            .path_and_query()
+            .map(|path_and_query| path_and_query.as_str())
+            .unwrap_or(req.uri().path())
     );
 
     match proxy
         .proxy_request_with_debug(
             &route,
             endpoint_path,
+            req.query_string(),
+            req.headers(),
             body,
             client_ip,
             client_url,

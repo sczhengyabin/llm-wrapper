@@ -1,10 +1,17 @@
 use crate::oauth::AuthManager;
 use crate::router::RouteResult;
+use actix_web::http::header::HeaderMap;
 use futures::StreamExt;
 use reqwest::Client;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::debug;
+
+const ANTHROPIC_PASSTHROUGH_HEADERS: &[&str] = &[
+    "anthropic-version",
+    "anthropic-beta",
+    "anthropic-dangerous-direct-browser-access",
+];
 
 /// 调试信息
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -59,6 +66,8 @@ impl Proxy {
         &self,
         route: &RouteResult,
         endpoint_path: &str,
+        query_string: &str,
+        client_headers: &HeaderMap,
         body: serde_json::Value,
         client_ip: String,
         client_url: String,
@@ -71,7 +80,7 @@ impl Proxy {
         let mut request_body = body.clone();
         apply_param_overrides_inner(&mut request_body, route);
 
-        let upstream_url = format!("{}{}", route.upstream_base_url, endpoint_path);
+        let upstream_url = build_upstream_url(route, endpoint_path, query_string);
         debug!("代理请求到上游：{}", upstream_url);
 
         let request_body_bytes =
@@ -82,6 +91,8 @@ impl Proxy {
             .post(&upstream_url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(request_body_bytes);
+        let req_builder =
+            apply_anthropic_passthrough_headers(req_builder, endpoint_path, client_headers);
         let req_builder = self.apply_auth(route, req_builder).await;
 
         let response = req_builder
@@ -159,9 +170,8 @@ impl Proxy {
                 .await
                 .map_err(|e| format!("读取响应失败：{}", e))?;
 
-            let upstream_response =
-                serde_json::from_slice::<serde_json::Value>(&body_bytes)
-                    .unwrap_or(serde_json::Value::Null);
+            let upstream_response = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+                .unwrap_or(serde_json::Value::Null);
 
             let mut resp_builder = actix_web::HttpResponse::build(
                 actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap(),
@@ -187,6 +197,57 @@ impl Proxy {
             Ok(resp_builder.body(body_bytes.to_vec()))
         }
     }
+}
+
+pub fn build_endpoint_path_with_query(endpoint_path: &str, query_string: &str) -> String {
+    if query_string.is_empty() {
+        endpoint_path.to_string()
+    } else {
+        format!("{}?{}", endpoint_path, query_string)
+    }
+}
+
+fn build_upstream_url(route: &RouteResult, endpoint_path: &str, query_string: &str) -> String {
+    let base_url = if endpoint_path == "/v1/messages" {
+        route
+            .anthropic_base_url
+            .as_deref()
+            .unwrap_or(&route.upstream_base_url)
+    } else {
+        &route.upstream_base_url
+    };
+    let path = build_endpoint_path_with_query(endpoint_path, query_string);
+    format!("{}{}", base_url.trim_end_matches('/'), path)
+}
+
+pub fn anthropic_passthrough_headers(
+    endpoint_path: &str,
+    headers: &HeaderMap,
+) -> Vec<(&'static str, String)> {
+    if endpoint_path != "/v1/messages" {
+        return Vec::new();
+    }
+
+    ANTHROPIC_PASSTHROUGH_HEADERS
+        .iter()
+        .filter_map(|name| {
+            headers
+                .get(*name)
+                .and_then(|value| value.to_str().ok())
+                .map(|value| (*name, value.to_string()))
+        })
+        .collect()
+}
+
+pub(crate) fn apply_anthropic_passthrough_headers(
+    mut req_builder: reqwest::RequestBuilder,
+    endpoint_path: &str,
+    headers: &HeaderMap,
+) -> reqwest::RequestBuilder {
+    for (name, value) in anthropic_passthrough_headers(endpoint_path, headers) {
+        req_builder = req_builder.header(name, value);
+    }
+    req_builder
 }
 
 /// 应用参数覆盖到请求体（提取为独立函数供测试使用）
@@ -240,6 +301,7 @@ mod tests {
     ) -> RouteResult {
         RouteResult {
             upstream_base_url: "http://localhost:8080".to_string(),
+            anthropic_base_url: None,
             upstream_name: "test".to_string(),
             upstream_auth: crate::models::UpstreamAuth::ApiKey {
                 key: Some("test-key".to_string()),
@@ -250,7 +312,67 @@ mod tests {
             use_cli_proxy_api: false,
             cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
             cli_proxy_api_api_key: None,
+            support_chat_completions: true,
+            support_responses: false,
+            support_anthropic_messages: true,
         }
+    }
+
+    #[test]
+    fn test_build_upstream_url_uses_anthropic_base_url_and_query() {
+        let mut route = create_test_route(HashMap::new(), HashMap::new());
+        route.upstream_base_url = "https://example.com/openai/".to_string();
+        route.anthropic_base_url = Some("https://example.com/anthropic/".to_string());
+
+        let url = build_upstream_url(&route, "/v1/messages", "beta=true");
+
+        assert_eq!(url, "https://example.com/anthropic/v1/messages?beta=true");
+    }
+
+    #[test]
+    fn test_build_upstream_url_uses_default_base_for_non_anthropic() {
+        let mut route = create_test_route(HashMap::new(), HashMap::new());
+        route.upstream_base_url = "https://example.com/openai/".to_string();
+        route.anthropic_base_url = Some("https://example.com/anthropic/".to_string());
+
+        let url = build_upstream_url(&route, "/v1/chat/completions", "");
+
+        assert_eq!(url, "https://example.com/openai/v1/chat/completions");
+    }
+
+    #[test]
+    fn test_anthropic_passthrough_headers_are_limited_to_messages() {
+        use actix_web::http::header::HeaderName;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("anthropic-version"),
+            "2023-06-01".parse().expect("valid header value"),
+        );
+        headers.insert(
+            HeaderName::from_static("anthropic-beta"),
+            "fine-grained-tool-streaming-2025-05-14"
+                .parse()
+                .expect("valid header value"),
+        );
+        headers.insert(
+            HeaderName::from_static("authorization"),
+            "Bearer client-token".parse().expect("valid header value"),
+        );
+
+        let forwarded = anthropic_passthrough_headers("/v1/messages", &headers);
+        assert_eq!(
+            forwarded,
+            vec![
+                ("anthropic-version", "2023-06-01".to_string()),
+                (
+                    "anthropic-beta",
+                    "fine-grained-tool-streaming-2025-05-14".to_string()
+                ),
+            ]
+        );
+
+        assert!(anthropic_passthrough_headers("/v1/chat/completions", &headers).is_empty());
     }
 
     #[test]

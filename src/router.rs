@@ -7,6 +7,8 @@ use std::collections::HashMap;
 pub struct RouteResult {
     /// 上游基础 URL
     pub upstream_base_url: String,
+    /// Anthropic Messages 协议使用的独立上游基础 URL
+    pub anthropic_base_url: Option<String>,
     /// 上游名称
     pub upstream_name: String,
     /// 上游认证配置
@@ -60,6 +62,7 @@ impl ModelRouter {
             let use_cli_proxy_api = upstream.auth.is_cli_proxy_api();
             return Some(RouteResult {
                 upstream_base_url: upstream.base_url.clone(),
+                anthropic_base_url: upstream.anthropic_base_url.clone(),
                 upstream_name: upstream.name.clone(),
                 upstream_auth: upstream.auth.clone(),
                 target_model: model.to_string(),
@@ -106,6 +109,7 @@ impl ModelRouter {
         let use_cli_proxy_api = upstream.auth.is_cli_proxy_api();
         Some(RouteResult {
             upstream_base_url: upstream.base_url.clone(),
+            anthropic_base_url: upstream.anthropic_base_url.clone(),
             upstream_name: upstream.name.clone(),
             upstream_auth: upstream.auth.clone(),
             target_model: alias.target_model.clone(),

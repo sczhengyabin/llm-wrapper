@@ -9,6 +9,7 @@ fn create_test_route(
 ) -> RouteResult {
     RouteResult {
         upstream_base_url: "http://localhost:8080".to_string(),
+        anthropic_base_url: None,
         upstream_name: "test".to_string(),
         upstream_auth: UpstreamAuth::ApiKey {
             key: Some("test-key".to_string()),
@@ -19,6 +20,9 @@ fn create_test_route(
         use_cli_proxy_api: false,
         cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
         cli_proxy_api_api_key: None,
+        support_chat_completions: true,
+        support_responses: false,
+        support_anthropic_messages: true,
     }
 }
 

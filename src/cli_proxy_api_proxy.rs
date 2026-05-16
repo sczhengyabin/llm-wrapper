@@ -5,28 +5,39 @@ use actix_web::body::BodyStream;
 use actix_web::web;
 use futures::StreamExt;
 
-use crate::proxy::DebugInfo;
+use crate::proxy::{anthropic_passthrough_headers, build_endpoint_path_with_query, DebugInfo};
 
 /// 将请求代理到 CLIProxyAPI
 ///
 /// 当上游使用 CLIProxyAPI 管理的认证方式时，
 /// 请求原样转发到 CLIProxyAPI，由 CLIProxyAPI 负责
 /// OAuth 认证、协议转换和请求伪装。
+#[allow(clippy::too_many_arguments)]
 pub async fn proxy_to_cli_proxy_api(
     cli_proxy_api_endpoint: &str,
     api_key: Option<&str>,
     endpoint_path: &str,
+    query_string: &str,
+    client_headers: &actix_web::http::header::HeaderMap,
     body: &serde_json::Value,
     debug_data: Option<&web::Data<crate::DebugDataStore>>,
     stream_hub: Option<&web::Data<crate::DebugStreamHub>>,
 ) -> actix_web::HttpResponse {
-    let url = format!("{}{}", cli_proxy_api_endpoint, endpoint_path);
+    let url = format!(
+        "{}{}",
+        cli_proxy_api_endpoint.trim_end_matches('/'),
+        build_endpoint_path_with_query(endpoint_path, query_string)
+    );
     let client_request = body.clone();
 
     let mut builder = reqwest::Client::new()
         .post(&url)
         .header("Content-Type", "application/json")
         .body(body.to_string());
+
+    for (name, value) in anthropic_passthrough_headers(endpoint_path, client_headers) {
+        builder = builder.header(name, value);
+    }
 
     if let Some(key) = api_key {
         builder = builder.bearer_auth(key);
@@ -59,8 +70,7 @@ pub async fn proxy_to_cli_proxy_api(
                     debug_store.data.write().await.replace(initial_debug);
                 }
 
-                let stream_hub_clone = stream_hub
-                    .map(|h| h.sender.clone());
+                let stream_hub_clone = stream_hub.map(|h| h.sender.clone());
 
                 let stream = response.bytes_stream().map(move |item| {
                     if let Ok(chunk) = &item {
@@ -93,9 +103,8 @@ pub async fn proxy_to_cli_proxy_api(
                     }
                 };
 
-                let upstream_response =
-                    serde_json::from_slice::<serde_json::Value>(&body_bytes)
-                        .unwrap_or(serde_json::Value::Null);
+                let upstream_response = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+                    .unwrap_or(serde_json::Value::Null);
 
                 let debug_info = DebugInfo {
                     client_request,

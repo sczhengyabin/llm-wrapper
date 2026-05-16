@@ -37,6 +37,34 @@ async fn test_route_alias_match() {
 }
 
 #[tokio::test]
+async fn test_route_carries_anthropic_base_url() {
+    let dir = create_test_config(
+        r#"
+        upstreams:
+          - name: anthropic-upstream
+            base_url: https://example.com/openai
+            anthropic_base_url: https://example.com/anthropic
+            support_anthropic_messages: true
+            enabled: true
+        aliases:
+          - alias: claude
+            target_model: claude-sonnet-4
+            upstream: anthropic-upstream
+        "#,
+    );
+    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
+    let config = ConfigManager::new(&config_path).await.unwrap();
+    let router = ModelRouter::new(config);
+
+    let route = router.route("claude").await.unwrap();
+
+    assert_eq!(
+        route.anthropic_base_url.as_deref(),
+        Some("https://example.com/anthropic")
+    );
+}
+
+#[tokio::test]
 async fn test_route_upstream_direct() {
     let dir = create_test_config(
         r#"
@@ -174,4 +202,3 @@ async fn test_route_upstream_not_found() {
     let route = router.route("my-model").await;
     assert!(route.is_none());
 }
-
