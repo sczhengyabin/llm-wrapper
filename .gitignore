@@ -1,5 +1,6 @@
 # 编译输出
 target/
+cli-proxy-api
 
 # 释放版本
 /release/
@@ -21,6 +22,7 @@ config.yaml
 # LLM 配置
 CLAUDE.md
 .claude
+AGENTS.md
 
 # OS 文件
 .DS_Store
