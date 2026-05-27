@@ -2,23 +2,104 @@
 // 将请求转发到 CLIProxyAPI sidecar 进程
 
 use actix_web::body::BodyStream;
+use actix_web::http::header::{
+    HeaderMap as ActixHeaderMap, HeaderName as ActixHeaderName, HeaderValue as ActixHeaderValue,
+};
 use actix_web::web;
 use futures::StreamExt;
+use reqwest::header::{
+    HeaderMap as ReqwestHeaderMap, HeaderName as ReqwestHeaderName,
+    HeaderValue as ReqwestHeaderValue, AUTHORIZATION, CONTENT_TYPE,
+};
 
-use crate::proxy::{anthropic_passthrough_headers, build_endpoint_path_with_query, DebugInfo};
+use crate::proxy::{build_endpoint_path_with_query, replace_model_only, DebugInfo};
+
+fn is_hop_by_hop_header(name: &str) -> bool {
+    name.eq_ignore_ascii_case("connection")
+        || name.eq_ignore_ascii_case("keep-alive")
+        || name.eq_ignore_ascii_case("proxy-authenticate")
+        || name.eq_ignore_ascii_case("proxy-authorization")
+        || name.eq_ignore_ascii_case("te")
+        || name.eq_ignore_ascii_case("trailer")
+        || name.eq_ignore_ascii_case("transfer-encoding")
+        || name.eq_ignore_ascii_case("upgrade")
+}
+
+fn should_forward_request_header(name: &str) -> bool {
+    !is_hop_by_hop_header(name)
+        && !name.eq_ignore_ascii_case("host")
+        && !name.eq_ignore_ascii_case("content-length")
+        && !name.eq_ignore_ascii_case("authorization")
+}
+
+fn should_forward_response_header(name: &str) -> bool {
+    !is_hop_by_hop_header(name) && !name.eq_ignore_ascii_case("content-length")
+}
+
+fn build_cli_proxy_request_headers(
+    client_headers: &ActixHeaderMap,
+    api_key: Option<&str>,
+) -> ReqwestHeaderMap {
+    let mut headers = ReqwestHeaderMap::new();
+
+    for (name, value) in client_headers {
+        if !should_forward_request_header(name.as_str()) {
+            continue;
+        }
+        if let (Ok(name), Ok(value)) = (
+            ReqwestHeaderName::from_bytes(name.as_str().as_bytes()),
+            ReqwestHeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            headers.append(name, value);
+        }
+    }
+
+    if !headers.contains_key(CONTENT_TYPE) {
+        headers.insert(
+            CONTENT_TYPE,
+            ReqwestHeaderValue::from_static("application/json"),
+        );
+    }
+
+    if let Some(key) = api_key.filter(|key| !key.is_empty()) {
+        if let Ok(value) = ReqwestHeaderValue::from_str(&format!("Bearer {}", key)) {
+            headers.insert(AUTHORIZATION, value);
+        }
+    }
+
+    headers
+}
+
+fn append_cli_proxy_response_headers(
+    resp_builder: &mut actix_web::HttpResponseBuilder,
+    headers: &ReqwestHeaderMap,
+) {
+    for (name, value) in headers {
+        if !should_forward_response_header(name.as_str()) {
+            continue;
+        }
+        if let (Ok(name), Ok(value)) = (
+            ActixHeaderName::from_bytes(name.as_str().as_bytes()),
+            ActixHeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            resp_builder.append_header((name, value));
+        }
+    }
+}
 
 /// 将请求代理到 CLIProxyAPI
 ///
 /// 当上游使用 CLIProxyAPI 管理的认证方式时，
-/// 请求原样转发到 CLIProxyAPI，由 CLIProxyAPI 负责
-/// OAuth 认证、协议转换和请求伪装。
+/// 除 model 替换为路由目标模型外，请求透传到 CLIProxyAPI，
+/// 由 CLIProxyAPI 负责 OAuth 认证、协议转换和请求伪装。
 #[allow(clippy::too_many_arguments)]
 pub async fn proxy_to_cli_proxy_api(
     cli_proxy_api_endpoint: &str,
     api_key: Option<&str>,
+    target_model: &str,
     endpoint_path: &str,
     query_string: &str,
-    client_headers: &actix_web::http::header::HeaderMap,
+    client_headers: &ActixHeaderMap,
     body: &serde_json::Value,
     debug_data: Option<&web::Data<crate::DebugDataStore>>,
     stream_hub: Option<&web::Data<crate::DebugStreamHub>>,
@@ -29,28 +110,23 @@ pub async fn proxy_to_cli_proxy_api(
         build_endpoint_path_with_query(endpoint_path, query_string)
     );
     let client_request = body.clone();
+    let mut upstream_request = body.clone();
+    replace_model_only(&mut upstream_request, target_model);
 
-    let mut builder = reqwest::Client::new()
+    let builder = reqwest::Client::new()
         .post(&url)
-        .header("Content-Type", "application/json")
-        .body(body.to_string());
-
-    for (name, value) in anthropic_passthrough_headers(endpoint_path, client_headers) {
-        builder = builder.header(name, value);
-    }
-
-    if let Some(key) = api_key {
-        builder = builder.bearer_auth(key);
-    }
+        .headers(build_cli_proxy_request_headers(client_headers, api_key))
+        .body(upstream_request.to_string());
 
     match builder.send().await {
         Ok(response) => {
             let status = response.status();
+            let response_headers = response.headers().clone();
             let content_type = response
                 .headers()
                 .get(reqwest::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
-                .unwrap_or("text/event-stream")
+                .unwrap_or("application/octet-stream")
                 .to_string();
 
             let is_stream = content_type.contains("text/event-stream");
@@ -62,7 +138,7 @@ pub async fn proxy_to_cli_proxy_api(
                     client_url: String::new(),
                     endpoint: endpoint_path.to_string(),
                     upstream_url: url.clone(),
-                    upstream_request: body.clone(),
+                    upstream_request: upstream_request.clone(),
                     upstream_response: serde_json::Value::Null,
                 };
 
@@ -90,7 +166,7 @@ pub async fn proxy_to_cli_proxy_api(
                 let mut resp_builder = actix_web::HttpResponse::build(
                     actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap(),
                 );
-                resp_builder.content_type(content_type);
+                append_cli_proxy_response_headers(&mut resp_builder, &response_headers);
 
                 resp_builder.body(BodyStream::new(stream))
             } else {
@@ -112,7 +188,7 @@ pub async fn proxy_to_cli_proxy_api(
                     client_url: String::new(),
                     endpoint: endpoint_path.to_string(),
                     upstream_url: url,
-                    upstream_request: body.clone(),
+                    upstream_request,
                     upstream_response,
                 };
 
@@ -123,7 +199,7 @@ pub async fn proxy_to_cli_proxy_api(
                 let mut resp_builder = actix_web::HttpResponse::build(
                     actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap(),
                 );
-                resp_builder.content_type(content_type);
+                append_cli_proxy_response_headers(&mut resp_builder, &response_headers);
 
                 resp_builder.body(body_bytes)
             }
@@ -139,5 +215,90 @@ pub async fn proxy_to_cli_proxy_api(
                 }))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::http::header::{HeaderMap, HeaderName, HeaderValue};
+
+    fn insert(headers: &mut HeaderMap, name: &'static str, value: &'static str) {
+        headers.insert(
+            HeaderName::from_static(name),
+            HeaderValue::from_static(value),
+        );
+    }
+
+    #[test]
+    fn test_cli_proxy_request_headers_passthrough_except_proxy_managed_headers() {
+        let mut client_headers = HeaderMap::new();
+        insert(&mut client_headers, "host", "wrapper.local");
+        insert(
+            &mut client_headers,
+            "content-type",
+            "application/json; charset=utf-8",
+        );
+        insert(&mut client_headers, "content-length", "123");
+        insert(&mut client_headers, "connection", "keep-alive");
+        insert(&mut client_headers, "authorization", "Bearer client-key");
+        insert(
+            &mut client_headers,
+            "anthropic-beta",
+            "fine-grained-tool-streaming",
+        );
+        insert(&mut client_headers, "x-amp-thread-id", "thread-123");
+        insert(&mut client_headers, "user-agent", "claude-cli/1.0");
+
+        let forwarded = build_cli_proxy_request_headers(&client_headers, Some("sidecar-key"));
+
+        assert_eq!(
+            forwarded.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()),
+            Some("application/json; charset=utf-8")
+        );
+        assert_eq!(
+            forwarded.get(AUTHORIZATION).and_then(|v| v.to_str().ok()),
+            Some("Bearer sidecar-key")
+        );
+        assert_eq!(
+            forwarded
+                .get("anthropic-beta")
+                .and_then(|v| v.to_str().ok()),
+            Some("fine-grained-tool-streaming")
+        );
+        assert_eq!(
+            forwarded
+                .get("x-amp-thread-id")
+                .and_then(|v| v.to_str().ok()),
+            Some("thread-123")
+        );
+        assert_eq!(
+            forwarded.get("user-agent").and_then(|v| v.to_str().ok()),
+            Some("claude-cli/1.0")
+        );
+        assert!(forwarded.get("host").is_none());
+        assert!(forwarded.get("content-length").is_none());
+        assert!(forwarded.get("connection").is_none());
+    }
+
+    #[test]
+    fn test_cli_proxy_request_headers_default_to_json_content_type() {
+        let forwarded = build_cli_proxy_request_headers(&HeaderMap::new(), None);
+
+        assert_eq!(
+            forwarded.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()),
+            Some("application/json")
+        );
+        assert!(forwarded.get(AUTHORIZATION).is_none());
+    }
+
+    #[test]
+    fn test_cli_proxy_response_headers_filter_only_transport_headers() {
+        assert!(should_forward_response_header("content-type"));
+        assert!(should_forward_response_header("anthropic-request-id"));
+        assert!(should_forward_response_header("x-request-id"));
+        assert!(!should_forward_response_header("content-length"));
+        assert!(!should_forward_response_header("transfer-encoding"));
+        assert!(!should_forward_response_header("connection"));
     }
 }

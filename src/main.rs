@@ -432,11 +432,16 @@ async fn handle_protocol_request(
             }
         }
 
-        let cli_proxy_api_key =
-            Some(manager.api_key().await).or(route.cli_proxy_api_api_key.clone());
+        let manager_api_key = manager.api_key().await;
+        let cli_proxy_api_key = if manager_api_key.is_empty() {
+            route.cli_proxy_api_api_key.as_deref()
+        } else {
+            Some(manager_api_key.as_str())
+        };
         return cli_proxy_api_proxy::proxy_to_cli_proxy_api(
             &route.cli_proxy_api_endpoint,
-            cli_proxy_api_key.as_deref(),
+            cli_proxy_api_key,
+            &route.target_model,
             endpoint_path,
             req.query_string(),
             req.headers(),

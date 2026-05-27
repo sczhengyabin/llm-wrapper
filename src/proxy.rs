@@ -254,6 +254,16 @@ pub(crate) fn apply_anthropic_passthrough_headers(
     req_builder
 }
 
+/// 仅替换请求体中的 model 字段，不应用别名参数覆盖。
+pub fn replace_model_only(body: &mut serde_json::Value, target_model: &str) {
+    if let serde_json::Value::Object(ref mut map) = body {
+        map.insert(
+            "model".to_string(),
+            serde_json::Value::String(target_model.to_string()),
+        );
+    }
+}
+
 /// 应用参数覆盖到请求体（提取为独立函数供测试使用）
 pub fn apply_param_overrides_inner(body: &mut serde_json::Value, route: &RouteResult) {
     if let serde_json::Value::Object(ref mut map) = body {

@@ -1,5 +1,5 @@
 use llm_wrapper::models::UpstreamAuth;
-use llm_wrapper::proxy::apply_param_overrides_inner;
+use llm_wrapper::proxy::{apply_param_overrides_inner, replace_model_only};
 use llm_wrapper::router::RouteResult;
 use std::collections::HashMap;
 
@@ -159,4 +159,32 @@ fn test_apply_empty_body() {
 
     // 即使空 body，也应该设置 model
     assert_eq!(body["model"], serde_json::json!("gpt-4-turbo"));
+}
+
+#[test]
+fn test_replace_model_only_leaves_other_fields_untouched() {
+    let mut body = serde_json::json!({
+        "model": "alias-model",
+        "temperature": 0.3,
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": false
+            }
+        },
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    replace_model_only(&mut body, "claude-sonnet-4-5");
+
+    assert_eq!(body["model"], serde_json::json!("claude-sonnet-4-5"));
+    assert_eq!(body["temperature"], serde_json::json!(0.3));
+    assert_eq!(
+        body["extra_body"]["chat_template_kwargs"]["enable_thinking"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        body["messages"],
+        serde_json::json!([{"role": "user", "content": "Hello"}])
+    );
+    assert!(body.get("top_p").is_none());
 }
