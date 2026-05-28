@@ -59,6 +59,12 @@ bytes = "1"
 # Home directory path for token cache location
 dirs = "5.0"
 
+[profile.dev]
+opt-level = 0
+debug = "line-tables-only"
+strip = "debuginfo"
+incremental = false
+
 [profile.release]
 opt-level = 3
 lto = true
