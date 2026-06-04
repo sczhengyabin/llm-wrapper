@@ -123,9 +123,7 @@ impl CliProxyApiManager {
             return config_path;
         }
 
-        let addr = endpoint
-            .strip_prefix("http://")
-            .unwrap_or(endpoint);
+        let addr = endpoint.strip_prefix("http://").unwrap_or(endpoint);
         let (host, port) = match addr.split_once(':') {
             Some((h, p)) => (h, p),
             None => ("127.0.0.1", "8317"),
@@ -215,7 +213,11 @@ codex-header-defaults:
                 .and_then(|content| {
                     serde_json::from_str::<serde_json::Value>(&content)
                         .ok()
-                        .and_then(|v| v.get("email").and_then(|e| e.as_str()).map(|s| s.to_string()))
+                        .and_then(|v| {
+                            v.get("email")
+                                .and_then(|e| e.as_str())
+                                .map(|s| s.to_string())
+                        })
                 })
                 .unwrap_or_default();
             let expired = std::fs::read_to_string(&file_path)
@@ -223,7 +225,11 @@ codex-header-defaults:
                 .and_then(|content| {
                     serde_json::from_str::<serde_json::Value>(&content)
                         .ok()
-                        .and_then(|v| v.get("expired").and_then(|e| e.as_str()).map(|s| s.to_string()))
+                        .and_then(|v| {
+                            v.get("expired")
+                                .and_then(|e| e.as_str())
+                                .map(|s| s.to_string())
+                        })
                 })
                 .unwrap_or_default();
 
@@ -315,10 +321,10 @@ codex-header-defaults:
 
         if close_brackets.len() >= 4 {
             let ts_str = line[1..close_brackets[0]].trim();
-            let _ctx = line[close_brackets[0]+3..close_brackets[1]].trim(); // request ID
-            let level_str = line[close_brackets[1]+3..close_brackets[2]].trim();
-            let src = line[close_brackets[2]+3..close_brackets[3]].trim();
-            let msg = line[close_brackets[3]+1..].trim();
+            let _ctx = line[close_brackets[0] + 3..close_brackets[1]].trim(); // request ID
+            let level_str = line[close_brackets[1] + 3..close_brackets[2]].trim();
+            let src = line[close_brackets[2] + 3..close_brackets[3]].trim();
+            let msg = line[close_brackets[3] + 1..].trim();
 
             if msg.is_empty() {
                 return; // 无消息内容，跳过
@@ -328,24 +334,27 @@ codex-header-defaults:
 
             let level = match level_str.to_lowercase().as_str() {
                 "error" | "err" => tracing::Level::ERROR,
-                "warn"  => tracing::Level::WARN,
-                "info"  => tracing::Level::INFO,
+                "warn" => tracing::Level::WARN,
+                "info" => tracing::Level::INFO,
                 "debug" => tracing::Level::DEBUG,
-                _       => tracing::Level::TRACE,
+                _ => tracing::Level::TRACE,
             };
 
             let iso_ts = ts_str.replace(' ', "T");
             let (level_tag, color) = match level {
-                tracing::Level::ERROR => ("ERROR", "\x1b[31m"),  // red
-                tracing::Level::WARN  => ("WARN",  "\x1b[33m"),  // yellow
-                tracing::Level::INFO  => ("INFO",  "\x1b[32m"),  // green
-                tracing::Level::DEBUG => ("DEBUG", "\x1b[36m"),  // cyan
-                tracing::Level::TRACE => ("TRACE", "\x1b[90m"),  // dim
+                tracing::Level::ERROR => ("ERROR", "\x1b[31m"), // red
+                tracing::Level::WARN => ("WARN", "\x1b[33m"),   // yellow
+                tracing::Level::INFO => ("INFO", "\x1b[32m"),   // green
+                tracing::Level::DEBUG => ("DEBUG", "\x1b[36m"), // cyan
+                tracing::Level::TRACE => ("TRACE", "\x1b[90m"), // dim
             };
             let reset = "\x1b[0m";
             let dim = "\x1b[2m";
             let blue = "\x1b[34m";
-            eprintln!("{}{}Z{}  {}{}{} {}{}cli_proxy_api{}: {}", dim, iso_ts, reset, color, level_tag, reset, dim, blue, reset, message);
+            eprintln!(
+                "{}{}Z{}  {}{}{} {}{}cli_proxy_api{}: {}",
+                dim, iso_ts, reset, color, level_tag, reset, dim, blue, reset, message
+            );
             return;
         }
 
@@ -444,12 +453,14 @@ codex-header-defaults:
             .spawn()
             .context("Failed to spawn CLIProxyAPI login process")?;
 
-        let stdout = child.stdout.take().ok_or_else(|| {
-            anyhow::anyhow!("Failed to take stdout from login process")
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            anyhow::anyhow!("Failed to take stderr from login process")
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to take stdout from login process"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to take stderr from login process"))?;
 
         let child_pid = child.id().unwrap_or(0);
 
@@ -468,10 +479,20 @@ codex-header-defaults:
 
             if is_device {
                 if trimmed.starts_with("Codex device URL: ") {
-                    auth_url = Some(trimmed.trim_start_matches("Codex device URL: ").trim().to_string());
+                    auth_url = Some(
+                        trimmed
+                            .trim_start_matches("Codex device URL: ")
+                            .trim()
+                            .to_string(),
+                    );
                 }
                 if trimmed.starts_with("Codex device code: ") {
-                    device_code = Some(trimmed.trim_start_matches("Codex device code: ").trim().to_string());
+                    device_code = Some(
+                        trimmed
+                            .trim_start_matches("Codex device code: ")
+                            .trim()
+                            .to_string(),
+                    );
                 }
                 if auth_url.is_some() {
                     break;
@@ -490,9 +511,8 @@ codex-header-defaults:
             buf.clear();
         }
 
-        let url = auth_url.ok_or_else(|| {
-            anyhow::anyhow!("Auth URL not found in login process output")
-        })?;
+        let url = auth_url
+            .ok_or_else(|| anyhow::anyhow!("Auth URL not found in login process output"))?;
 
         info!(
             "CLIProxyAPI login auth_url obtained for provider '{}', storing pending session",
@@ -505,10 +525,9 @@ codex-header-defaults:
 
         // 存储待完成的登录会话
         let mut state = self.state.lock().await;
-        state.pending_logins.insert(
-            provider.to_string(),
-            PendingLogin { child_pid },
-        );
+        state
+            .pending_logins
+            .insert(provider.to_string(), PendingLogin { child_pid });
 
         Ok(LoginResult {
             auth_url: url,
@@ -566,11 +585,7 @@ codex-header-defaults:
     }
 
     /// 完成登录：直接 HTTP GET 回调 URL，让 CLIProxyAPI 接收回调
-    pub async fn complete_login(
-        &self,
-        provider: &str,
-        callback_url: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn complete_login(&self, provider: &str, callback_url: &str) -> anyhow::Result<()> {
         let _ = {
             let mut state = self.state.lock().await;
             info!(
@@ -664,7 +679,10 @@ codex-header-defaults:
 
         // 如果端口仍有服务在响应（外部进程），查找并杀掉
         if Self::health_check_http(&endpoint).await.unwrap_or(false) {
-            info!("CLIProxyAPI detected on {}, killing external process", endpoint);
+            info!(
+                "CLIProxyAPI detected on {}, killing external process",
+                endpoint
+            );
             if let Err(e) = Self::kill_process_on_port(&endpoint).await {
                 warn!("Failed to kill external CLIProxyAPI: {}", e);
             }
@@ -812,7 +830,9 @@ codex-header-defaults:
     /// 健康检查
     pub async fn health_check(&self) -> bool {
         let state = self.state.lock().await;
-        Self::health_check_http(&state.endpoint).await.unwrap_or(false)
+        Self::health_check_http(&state.endpoint)
+            .await
+            .unwrap_or(false)
     }
 
     async fn health_check_http(endpoint: &str) -> anyhow::Result<bool> {

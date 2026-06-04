@@ -1,4 +1,5 @@
 use llm_wrapper::config::ConfigManager;
+use llm_wrapper::models::UpstreamAuth;
 use llm_wrapper::router::ModelRouter;
 use std::io::Write;
 use tempfile::TempDir;
@@ -201,4 +202,36 @@ async fn test_route_upstream_not_found() {
     // 上游不存在，应返回 None
     let route = router.route("my-model").await;
     assert!(route.is_none());
+}
+
+#[tokio::test]
+async fn test_route_anthropic_oauth_uses_cli_proxy_api() {
+    let dir = create_test_config(
+        r#"
+        cli_proxy_api_endpoint: http://127.0.0.1:8317
+        upstreams:
+          - name: claude
+            base_url: https://api.anthropic.com
+            auth:
+              type: anthropic_oauth
+            enabled: true
+        aliases:
+          - alias: claude-sonnet
+            target_model: claude-sonnet-4-5
+            upstream: claude
+        "#,
+    );
+    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
+    let config = ConfigManager::new(&config_path).await.unwrap();
+    let router = ModelRouter::new(config);
+
+    let route = router.route("claude-sonnet").await.unwrap();
+
+    assert!(route.use_cli_proxy_api);
+    assert_eq!(route.upstream_auth, UpstreamAuth::AnthropicOAuth);
+    assert_eq!(route.target_model, "claude-sonnet-4-5");
+    assert_eq!(route.cli_proxy_api_endpoint, "http://127.0.0.1:8317");
+    assert!(route.support_chat_completions);
+    assert!(route.support_responses);
+    assert!(route.support_anthropic_messages);
 }

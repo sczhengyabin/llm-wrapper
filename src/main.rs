@@ -16,7 +16,7 @@ use actix_files as fs;
 use actix_web::dev::Server;
 use actix_web::{middleware, web, App, Error, HttpResponse, HttpServer};
 use config::ConfigManager;
-use futures::{Stream, StreamExt};
+use futures::{stream, Stream, StreamExt};
 use models::AppConfig;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -141,20 +141,16 @@ async fn main() -> std::io::Result<()> {
     // 初始化日志
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,actix_web::middleware::logger=info,actix_server=warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "info,actix_web::middleware::logger=info,actix_server=warn".into()
+            }),
         )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_timer(
-                    tracing_subscriber::fmt::time::OffsetTime::new(
-                        time::UtcOffset::UTC,
-                        time::macros::format_description!(
-                            "[year]-[month]-[day]T[hour]:[minute]:[second]Z"
-                        ),
-                    ),
-                ),
-        )
+        .with(tracing_subscriber::fmt::layer().with_timer(
+            tracing_subscriber::fmt::time::OffsetTime::new(
+                time::UtcOffset::UTC,
+                time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]Z"),
+            ),
+        ))
         .init();
 
     // 打印版本信息
@@ -197,7 +193,10 @@ async fn main() -> std::io::Result<()> {
         // 仅有账号文件时才启动进程
         if mgr.has_accounts().await {
             if let Err(e) = mgr.start().await {
-                warn!("Failed to start CLIProxyAPI: {}. CLIProxyAPI upstreams will be unavailable.", e);
+                warn!(
+                    "Failed to start CLIProxyAPI: {}. CLIProxyAPI upstreams will be unavailable.",
+                    e
+                );
             }
         } else {
             info!("No CLIProxyAPI accounts found. Login via WebUI to add an account.");
@@ -219,9 +218,15 @@ async fn main() -> std::io::Result<()> {
     });
 
     // 启动服务器
-    let addr = bind_addr.unwrap_or_else(|| std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string()));
+    let addr = bind_addr.unwrap_or_else(|| {
+        std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string())
+    });
 
-    info!("LLM Wrapper v{} 启动在 http://{}", env!("CARGO_PKG_VERSION"), addr);
+    info!(
+        "LLM Wrapper v{} 启动在 http://{}",
+        env!("CARGO_PKG_VERSION"),
+        addr
+    );
     info!("WebUI 访问 http://{}/", addr);
     info!("API 端点 http://{}/v1/chat/completions", addr);
 
@@ -324,13 +329,7 @@ async fn chat_completions(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
-    handle_protocol_request(
-        state,
-        body.into_inner(),
-        req,
-        "/v1/chat/completions",
-    )
-    .await
+    handle_protocol_request(state, body.into_inner(), req, "/v1/chat/completions").await
 }
 
 async fn responses(
@@ -338,13 +337,7 @@ async fn responses(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
-    handle_protocol_request(
-        state,
-        body.into_inner(),
-        req,
-        "/v1/responses",
-    )
-    .await
+    handle_protocol_request(state, body.into_inner(), req, "/v1/responses").await
 }
 
 async fn messages(
@@ -582,11 +575,6 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                     }
                     // CLIProxyAPI 上游的模型列表从 CLIProxyAPI 服务获取
                     UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => {
-                        let _provider = match &auth {
-                            UpstreamAuth::AnthropicOAuth => "claude",
-                            UpstreamAuth::CodexOAuth => "codex",
-                            _ => unreachable!(),
-                        };
                         if let Some(mgr) = &cli_proxy_api_manager {
                             if mgr.is_running().await {
                                 let api_key = mgr.api_key().await;
@@ -595,6 +583,10 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                                     .get(format!("{}/v1/models", endpoint))
                                     .timeout(std::time::Duration::from_secs(2))
                                     .bearer_auth(&api_key);
+                                if matches!(&auth, UpstreamAuth::AnthropicOAuth) {
+                                    request =
+                                        request.header("User-Agent", "claude-cli/llm-wrapper");
+                                }
                             }
                         }
                     }
@@ -605,7 +597,9 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
                         Ok(body) => {
                             let mut models = Vec::new();
                             for (id, max_len) in extract_models_from_upstream_response(&body) {
-                                models.push((up.name.clone(), id, max_len));
+                                if cli_proxy_api_model_matches_auth(&auth, &id) {
+                                    models.push((up.name.clone(), id, max_len));
+                                }
                             }
                             models
                         }
@@ -685,6 +679,7 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
 
     // 并发获取所有启用上游的模型列表
     let auth_manager = state.auth_manager.clone();
+    let cli_proxy_api_manager = state.cli_proxy_api_manager.clone();
     let futures: Vec<_> = config
         .upstreams
         .iter()
@@ -694,22 +689,33 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
             let name = upstream.name.clone();
             let auth = upstream.auth.clone();
             let _auth_manager = auth_manager.clone();
+            let cli_proxy_api_manager = cli_proxy_api_manager.clone();
 
             async move {
                 let mut request = reqwest::Client::new().get(&url);
 
-                // 同时支持 ApiKey 与 OAuth 上游（如 codex）模型列表拉取
-                let token = match &auth {
-                    UpstreamAuth::ApiKey { key } => key
-                        .as_ref()
-                        .filter(|k| *k != "none" && !k.is_empty())
-                        .cloned(),
-                    // CLIProxyAPI 上游的模型列表从 CLIProxyAPI 获取
-                    UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => None,
-                };
-
-                if let Some(token) = token {
-                    request = request.bearer_auth(token);
+                match &auth {
+                    UpstreamAuth::ApiKey { key } => {
+                        if let Some(token) = key.as_ref().filter(|k| *k != "none" && !k.is_empty())
+                        {
+                            request = request.bearer_auth(token);
+                        }
+                    }
+                    UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => {
+                        if let Some(mgr) = &cli_proxy_api_manager {
+                            if mgr.is_running().await {
+                                let api_key = mgr.api_key().await;
+                                let endpoint = mgr.endpoint().await;
+                                request = reqwest::Client::new()
+                                    .get(format!("{}/v1/models", endpoint))
+                                    .bearer_auth(&api_key);
+                                if matches!(&auth, UpstreamAuth::AnthropicOAuth) {
+                                    request =
+                                        request.header("User-Agent", "claude-cli/llm-wrapper");
+                                }
+                            }
+                        }
+                    }
                 }
 
                 match request.send().await {
@@ -717,7 +723,9 @@ async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
                         let mut models = Vec::new();
                         if let Ok(body) = resp.json::<serde_json::Value>().await {
                             for (id, _) in extract_models_from_upstream_response(&body) {
-                                models.push(id);
+                                if cli_proxy_api_model_matches_auth(&auth, &id) {
+                                    models.push(id);
+                                }
                             }
                         }
                         models
@@ -781,11 +789,6 @@ async fn get_upstream_models_by_name(
         }
         // CLIProxyAPI 上游的模型列表从 CLIProxyAPI 服务获取
         UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth => {
-            let _provider = match &upstream.auth {
-                UpstreamAuth::AnthropicOAuth => "claude",
-                UpstreamAuth::CodexOAuth => "codex",
-                _ => unreachable!(),
-            };
             if let Some(mgr) = &state.cli_proxy_api_manager {
                 if mgr.is_running().await {
                     let api_key = mgr.api_key().await;
@@ -794,6 +797,9 @@ async fn get_upstream_models_by_name(
                         .get(format!("{}/v1/models", endpoint))
                         .timeout(std::time::Duration::from_secs(5))
                         .bearer_auth(&api_key);
+                    if matches!(&upstream.auth, UpstreamAuth::AnthropicOAuth) {
+                        request = request.header("User-Agent", "claude-cli/llm-wrapper");
+                    }
                 } else {
                     return HttpResponse::BadRequest().json(json!({
                         "error": format!("上游 '{}' 的 CLIProxyAPI 服务未运行", upstream.name)
@@ -812,7 +818,9 @@ async fn get_upstream_models_by_name(
             let mut models = Vec::new();
             if let Ok(body) = resp.json::<serde_json::Value>().await {
                 for (id, _) in extract_models_from_upstream_response(&body) {
-                    models.push(id);
+                    if cli_proxy_api_model_matches_auth(&upstream.auth, &id) {
+                        models.push(id);
+                    }
                 }
             }
             HttpResponse::Ok().json(json!({
@@ -831,6 +839,14 @@ async fn get_upstream_models_by_name(
                 }))
             }
         }
+    }
+}
+
+fn cli_proxy_api_model_matches_auth(auth: &UpstreamAuth, model_id: &str) -> bool {
+    match auth {
+        UpstreamAuth::AnthropicOAuth => model_id.starts_with("claude-"),
+        UpstreamAuth::CodexOAuth => !model_id.starts_with("claude-"),
+        UpstreamAuth::ApiKey { .. } => true,
     }
 }
 
@@ -908,11 +924,16 @@ async fn auth_clear_token(state: web::Data<AppState>, path: web::Path<String>) -
     }))
 }
 
+fn cli_proxy_api_provider(auth: &UpstreamAuth) -> Option<&'static str> {
+    match auth {
+        UpstreamAuth::AnthropicOAuth => Some("claude"),
+        UpstreamAuth::CodexOAuth => Some("codex"),
+        UpstreamAuth::ApiKey { .. } => None,
+    }
+}
+
 /// CLIProxyAPI 登录：发起 OAuth 登录流程
-async fn cli_proxy_api_login(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
+async fn cli_proxy_api_login(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let upstream_name = path.into_inner();
 
     // 验证上游存在且是 CLIProxyAPI 类型
@@ -930,11 +951,13 @@ async fn cli_proxy_api_login(
 
     let upstream = upstream.unwrap();
 
-    // 将 auth 类型映射为 provider id
-    let provider = match &upstream.auth {
-        UpstreamAuth::AnthropicOAuth => "claude",
-        UpstreamAuth::CodexOAuth => "codex",
-        _ => unreachable!(),
+    let provider = match cli_proxy_api_provider(&upstream.auth) {
+        Some(provider) => provider,
+        None => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("上游 '{}' 不是 CLIProxyAPI 类型", upstream_name)
+            }));
+        }
     };
 
     let manager = match &state.cli_proxy_api_manager {
@@ -991,10 +1014,13 @@ async fn cli_proxy_api_complete_login(
 
     let upstream = upstream.unwrap();
 
-    let provider = match &upstream.auth {
-        UpstreamAuth::AnthropicOAuth => "claude",
-        UpstreamAuth::CodexOAuth => "codex",
-        _ => unreachable!(),
+    let provider = match cli_proxy_api_provider(&upstream.auth) {
+        Some(provider) => provider,
+        None => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("上游 '{}' 不是 CLIProxyAPI 类型", upstream_name)
+            }));
+        }
     };
 
     let manager = match &state.cli_proxy_api_manager {
@@ -1030,16 +1056,98 @@ async fn cli_proxy_api_login_stream(
         .iter()
         .find(|u| u.name == upstream_name && u.auth.is_cli_proxy_api());
 
-    if upstream.is_none() {
+    let Some(upstream) = upstream else {
         return HttpResponse::BadRequest().json(json!({
             "error": format!("上游 '{}' 不存在或不是 CLIProxyAPI 类型", upstream_name)
         }));
-    }
+    };
 
-    let _ = &upstream_name;
-    HttpResponse::BadRequest().json(json!({
-        "error": "Login stream not yet implemented. Use /api/cli-proxy-api/login/{name} first."
-    }))
+    let Some(provider) = cli_proxy_api_provider(&upstream.auth) else {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("上游 '{}' 不是 CLIProxyAPI 类型", upstream_name)
+        }));
+    };
+
+    let manager = match &state.cli_proxy_api_manager {
+        Some(m) => Arc::clone(m),
+        None => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "CLIProxyAPI manager not initialized"
+            }));
+        }
+    };
+
+    let provider = provider.to_string();
+    let stream = stream::unfold(
+        (false, 0u16, manager, upstream_name, provider),
+        |(finished, attempt, manager, upstream_name, provider)| async move {
+            if finished {
+                return None;
+            }
+
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+
+            let status = manager.get_account_status().await;
+            let provider_status = status
+                .get("providers")
+                .and_then(|providers| providers.get(&provider));
+            let account_count = provider_status
+                .and_then(|s| s.get("account_count"))
+                .and_then(|count| count.as_u64())
+                .unwrap_or(0);
+
+            if account_count > 0 {
+                let account = provider_status
+                    .and_then(|s| s.get("accounts"))
+                    .and_then(|accounts| accounts.as_array())
+                    .and_then(|accounts| accounts.first())
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let payload = json!({
+                    "upstream": upstream_name,
+                    "status": {
+                        "status": "success",
+                        "message": "登录成功",
+                        "email": account.get("email").and_then(|v| v.as_str()).unwrap_or(""),
+                        "expires_at": account.get("expiresAt").and_then(|v| v.as_str()).unwrap_or(""),
+                        "lastRefresh": account.get("lastRefresh").and_then(|v| v.as_str()).unwrap_or("")
+                    }
+                });
+                let chunk = format!("data: {}\n\n", payload);
+                return Some((
+                    Ok::<_, Error>(web::Bytes::from(chunk)),
+                    (true, attempt + 1, manager, upstream_name, provider),
+                ));
+            }
+
+            if attempt >= 150 {
+                let payload = json!({
+                    "upstream": upstream_name,
+                    "status": {
+                        "status": "timeout",
+                        "message": "登录超时，请重新发起登录"
+                    }
+                });
+                let chunk = format!("data: {}\n\n", payload);
+                return Some((
+                    Ok::<_, Error>(web::Bytes::from(chunk)),
+                    (true, attempt + 1, manager, upstream_name, provider),
+                ));
+            }
+
+            Some((
+                Ok::<_, Error>(web::Bytes::from(": keep-alive\n\n")),
+                (false, attempt + 1, manager, upstream_name, provider),
+            ))
+        },
+    );
+
+    HttpResponse::Ok()
+        .insert_header(("Content-Type", "text/event-stream"))
+        .insert_header(("Cache-Control", "no-cache"))
+        .streaming(stream)
 }
 
 /// 将 CLIProxyAPI 管理 API 响应转换为前端期望格式
@@ -1056,12 +1164,21 @@ fn transform_cli_proxy_api_status(body: &serde_json::Value) -> serde_json::Value
                 "lastRefresh": file.get("last_refresh").and_then(|e| e.as_str()).unwrap_or("")
             });
 
-            let entry: serde_json::Value =
-                providers.get(provider).unwrap_or(&serde_json::json!({})).clone();
-            let mut accounts = entry.get("accounts").and_then(|a| a.as_array()).cloned().unwrap_or(vec![]);
+            let entry: serde_json::Value = providers
+                .get(provider)
+                .unwrap_or(&serde_json::json!({}))
+                .clone();
+            let mut accounts = entry
+                .get("accounts")
+                .and_then(|a| a.as_array())
+                .cloned()
+                .unwrap_or(vec![]);
             accounts.push(account);
             let mut new_entry = serde_json::Map::new();
-            new_entry.insert("account_count".to_string(), serde_json::json!(accounts.len()));
+            new_entry.insert(
+                "account_count".to_string(),
+                serde_json::json!(accounts.len()),
+            );
             new_entry.insert("accounts".to_string(), serde_json::json!(accounts));
             providers.insert(provider.to_string(), serde_json::Value::Object(new_entry));
         }
@@ -1096,9 +1213,11 @@ async fn cli_proxy_api_status(state: web::Data<AppState>) -> HttpResponse {
                         let transformed = transform_cli_proxy_api_status(&body);
                         return HttpResponse::Ok().json(transformed);
                     }
-                    Err(e) => return HttpResponse::InternalServerError().json(json!({
-                        "error": format!("Failed to parse CLIProxyAPI response: {}", e)
-                    })),
+                    Err(e) => {
+                        return HttpResponse::InternalServerError().json(json!({
+                            "error": format!("Failed to parse CLIProxyAPI response: {}", e)
+                        }))
+                    }
                 }
             }
             _ => {

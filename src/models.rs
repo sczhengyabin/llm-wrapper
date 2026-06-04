@@ -306,10 +306,17 @@ pub struct AppConfig {
     #[serde(default)]
     pub aliases: Vec<ModelAlias>,
     /// CLIProxyAPI sidecar 端点地址
-    #[serde(default = "default_cli_proxy_api_endpoint", alias = "auth2api_endpoint")]
+    #[serde(
+        default = "default_cli_proxy_api_endpoint",
+        alias = "auth2api_endpoint"
+    )]
     pub cli_proxy_api_endpoint: String,
     /// CLIProxyAPI API key（用于与 CLIProxyAPI 通信）
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "auth2api_api_key")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "auth2api_api_key"
+    )]
     pub cli_proxy_api_api_key: Option<String>,
 }
 

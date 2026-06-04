@@ -200,3 +200,11 @@ fn test_old_support_openai_json_migration() {
     assert_eq!(config.upstreams[0].support_anthropic_messages, true);
 }
 
+#[test]
+fn test_anthropic_oauth_auth_deserialization() {
+    let auth: UpstreamAuth = serde_json::from_str(r#"{"type":"anthropic_oauth"}"#).unwrap();
+
+    assert_eq!(auth, UpstreamAuth::AnthropicOAuth);
+    assert!(auth.is_cli_proxy_api());
+    assert!(auth.is_oauth());
+}

@@ -20,20 +20,27 @@ upstreams:
     support_responses: true
     support_anthropic_messages: false
 
-  # 上游 3: OAuth Device Code 认证（如 Codex CLI / ChatGPT）
-  # OpenAI 使用自定义设备码流程（非标准 RFC 8628），wrapper 会自动识别并适配
-  # 登录后 token 会自动缓存到 ~/.llm-wrapper/tokens.json，并自动刷新
+  # 上游 3: Codex / ChatGPT OAuth（由 CLIProxyAPI 管理）
+  # token 会缓存到配置文件同级的 .llm-wrapper/cli-proxy-api/ 目录，并由 CLIProxyAPI 自动刷新
   # 注意：Codex OAuth token 的目标是 chatgpt.com 后端，不是 api.openai.com
-  - name: openai-oauth
+  - name: codex
     base_url: https://chatgpt.com/backend-api
-    api_type: chatgpt_codex
     auth:
-      type: oauth_device
-      client_id: "app_EMoamEEZ73f0CkXaXp7hrann"  # OpenAI Codex 默认 Client ID
-      device_auth_url: https://auth.openai.com/api/accounts/deviceauth/usercode
-      token_url: https://auth.openai.com/api/accounts/deviceauth/token
+      type: codex_oauth
     enabled: true
-    # Codex 上游自动锁定为 support_responses=true，其他为 false
+    support_chat_completions: true
+    support_responses: true
+    support_anthropic_messages: true
+
+  # 上游 4: Claude Code / Anthropic OAuth（由 CLIProxyAPI 管理）
+  - name: claude
+    base_url: https://api.anthropic.com
+    auth:
+      type: anthropic_oauth
+    enabled: true
+    support_chat_completions: true
+    support_responses: true
+    support_anthropic_messages: true
 
 aliases:
   # 别名 1: 简单别名，直接映射到上游模型

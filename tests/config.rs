@@ -202,3 +202,25 @@ fn test_new_fields_roundtrip() {
     assert_eq!(config.upstreams[0].support_responses, true);
     assert_eq!(config.upstreams[0].support_anthropic_messages, true);
 }
+
+#[test]
+fn test_anthropic_oauth_forces_all_protocol_support() {
+    let dir = create_temp_file(
+        r#"
+        upstreams:
+          - name: claude
+            base_url: https://api.anthropic.com
+            auth:
+              type: anthropic_oauth
+            enabled: true
+        aliases: []
+        "#,
+    );
+    let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
+    let config = load_config(&config_path).unwrap();
+
+    assert_eq!(config.upstreams[0].auth, UpstreamAuth::AnthropicOAuth);
+    assert!(config.upstreams[0].support_chat_completions);
+    assert!(config.upstreams[0].support_responses);
+    assert!(config.upstreams[0].support_anthropic_messages);
+}

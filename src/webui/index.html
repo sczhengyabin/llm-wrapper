@@ -2041,11 +2041,17 @@
             return t === 'anthropic_oauth' || t === 'codex_oauth' ;
         }
 
+        function getCLIProxyAPIProviderId(authType) {
+            if (authType === 'anthropic_oauth') return 'claude';
+            if (authType === 'codex_oauth') return 'codex';
+            return null;
+        }
+
 
         function getAuthBadge(upstream) {
             if (isCLIProxyApiUpstream(upstream)) {
-                const provider = upstream.auth.type === 'anthropic_oauth' ? 'Anthropic'
-                    : upstream.auth.type === 'codex_oauth' ? 'Codex' : 'Cursor';
+                const provider = upstream.auth.type === 'anthropic_oauth' ? 'Claude Code'
+                    : upstream.auth.type === 'codex_oauth' ? 'Codex' : 'CLIProxyAPI';
                 return `<span class="auth-badge CLIProxyAPI">${provider} (CLIProxyAPI)</span>`;
             }
             if (isCLIProxyApiUpstream(upstream)) {
@@ -2361,8 +2367,8 @@
                     if (statusResp.ok) {
                         const accounts = await statusResp.json();
                         const provider = getUpstream(upstreamName)?.auth?.type;
-                        const providerId = provider?.replace('_oauth', '') || 'anthropic';
-                        if (accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
+                        const providerId = getCLIProxyAPIProviderId(provider);
+                        if (providerId && accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
                             clearInterval(pollInterval);
                             const acc = accounts.providers[providerId].accounts[0];
                             CLIProxyAPIAccountStatus[upstreamName] = {
@@ -2394,8 +2400,8 @@
                 if (resp.ok) {
                     const accounts = await resp.json();
                     const provider = getUpstream(upstreamName)?.auth?.type;
-                    const providerId = provider?.replace('_oauth', '') || 'anthropic';
-                    if (accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
+                    const providerId = getCLIProxyAPIProviderId(provider);
+                    if (providerId && accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
                         const acc = accounts.providers[providerId].accounts[0];
                         CLIProxyAPIAccountStatus[upstreamName] = {
                             logged_in: true,
@@ -2438,8 +2444,8 @@
                     if (resp.ok) {
                         const accounts = await resp.json();
                         for (const up of CLIProxyAPIUpstreams) {
-                            const providerId = up.auth.type.replace('_oauth', '');
-                            if (accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
+                            const providerId = getCLIProxyAPIProviderId(up.auth.type);
+                            if (providerId && accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
                                 const acc = accounts.providers[providerId].accounts[0];
                                 CLIProxyAPIAccountStatus[up.name] = {
                                     logged_in: true,
