@@ -73,6 +73,7 @@ impl CliProxyApiManager {
         config_path: &PathBuf,
         llm_wrapper_dir: &PathBuf,
     ) -> String {
+        let secret_file = llm_wrapper_dir.join("cli-proxy-api-secret");
         if config_path.exists() {
             if let Ok(content) = std::fs::read_to_string(config_path) {
                 if let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
@@ -81,15 +82,49 @@ impl CliProxyApiManager {
                         .and_then(|r| r.get("secret-key"))
                         .and_then(|s| s.as_str())
                     {
-                        return secret.to_string();
+                        if !secret.starts_with("$2") {
+                            return secret.to_string();
+                        }
+                        if let Ok(raw_secret) = std::fs::read_to_string(&secret_file) {
+                            let raw_secret = raw_secret.trim();
+                            if !raw_secret.is_empty() {
+                                Self::write_management_secret_to_config(config_path, raw_secret);
+                                return raw_secret.to_string();
+                            }
+                        }
                     }
                 }
             }
         }
         let secret = format!("sec-{}", uuid::Uuid::new_v4().as_hyphenated());
-        let secret_file = llm_wrapper_dir.join("cli-proxy-api-secret");
         let _ = std::fs::write(&secret_file, &secret);
         secret
+    }
+
+    fn write_management_secret_to_config(config_path: &PathBuf, secret: &str) {
+        let Ok(content) = std::fs::read_to_string(config_path) else {
+            return;
+        };
+        let Ok(mut doc) = serde_yaml::from_str::<serde_yaml::Value>(&content) else {
+            return;
+        };
+        let Some(root) = doc.as_mapping_mut() else {
+            return;
+        };
+        let Some(remote_management) = root
+            .get_mut(serde_yaml::Value::String("remote-management".to_string()))
+            .and_then(|v| v.as_mapping_mut())
+        else {
+            return;
+        };
+
+        remote_management.insert(
+            serde_yaml::Value::String("secret-key".to_string()),
+            serde_yaml::Value::String(secret.to_string()),
+        );
+        if let Ok(yaml) = serde_yaml::to_string(&doc) {
+            let _ = std::fs::write(config_path, yaml);
+        }
     }
 
     /// 从配置文件加载 API key，不存在则创建

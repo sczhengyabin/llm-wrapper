@@ -738,6 +738,40 @@
             color: #6c757d;
             font-size: 11px;
         }
+        .quota-status {
+            color: #6c757d;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+        .quota-status.quota-error {
+            color: #dc3545;
+        }
+        .quota-window {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        .quota-bar {
+            display: inline-block;
+            width: 34px;
+            height: 4px;
+            background: #e9ecef;
+            border-radius: 999px;
+            overflow: hidden;
+            vertical-align: middle;
+        }
+        .quota-bar-fill {
+            display: block;
+            height: 100%;
+            background: #28a745;
+        }
+        .quota-bar-fill.warn {
+            background: #ffc107;
+        }
+        .quota-bar-fill.danger {
+            background: #dc3545;
+        }
         .oauth-login-modal-body {
             text-align: center;
             padding: 20px;
@@ -1131,6 +1165,13 @@
                 token_auto_refresh_hint: "Token 将在过期前5天自动刷新",
                 token_refresh_in: " (预计刷新: ",
                 token_refresh_est: " (预计刷新: ",
+                quota_5h: "5小时",
+                quota_weekly: "周限额",
+                quota_weekly_sonnet: "Sonnet周限额",
+                quota_weekly_opus: "Opus周限额",
+                quota_used: "已用",
+                quota_reset: " 重置: ",
+                quota_failed: "额度查询失败",
 
             },
             en: {
@@ -1261,6 +1302,13 @@
                 token_auto_refresh_hint: "Token will auto-refresh 5 days before expiry",
                 token_refresh_in: " (est. refresh: ",
                 token_refresh_est: " (est. refresh: ",
+                quota_5h: "5h",
+                quota_weekly: "Weekly",
+                quota_weekly_sonnet: "Sonnet weekly",
+                quota_weekly_opus: "Opus weekly",
+                quota_used: "used",
+                quota_reset: " reset: ",
+                quota_failed: "Quota fetch failed",
             }
         };
 
@@ -2033,6 +2081,7 @@
         // Token status cache for OAuth upstreams
         let oauthTokenStatus = {};
         let CLIProxyAPIAccountStatus = {};
+        let CLIProxyAPIQuotaStatus = {};
         let oauthSSE = null;
         let oauthStatusPollInterval = null;
 
@@ -2060,6 +2109,58 @@
             return '<span class="auth-badge api-key">API Key</span>';
         }
 
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+
+        function getQuotaLabel(id, fallback) {
+            if (id === 'five_hour') return t('quota_5h');
+            if (id === 'weekly') return t('quota_weekly');
+            if (id === 'weekly_sonnet') return t('quota_weekly_sonnet');
+            if (id === 'weekly_opus') return t('quota_weekly_opus');
+            return fallback || id;
+        }
+
+        function formatQuotaReset(resetAt) {
+            if (!resetAt) return '';
+            let date = null;
+            if (typeof resetAt === 'string' && /^\+\d+s$/.test(resetAt)) {
+                date = new Date(Date.now() + Number(resetAt.slice(1, -1)) * 1000);
+            } else if (typeof resetAt === 'string' && /^\d+$/.test(resetAt)) {
+                date = new Date(Number(resetAt) * 1000);
+            } else {
+                date = new Date(resetAt);
+            }
+            if (Number.isNaN(date.getTime())) return '';
+            return t('quota_reset') + date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+
+        function getQuotaBarClass(percent) {
+            if (percent >= 90) return 'danger';
+            if (percent >= 80) return 'warn';
+            return '';
+        }
+
+        function getQuotaBarHtml(percent) {
+            if (typeof percent !== 'number') return '';
+            const width = Math.max(0, Math.min(100, percent));
+            return `<span class="quota-bar" title="${t('quota_used')} ${Math.round(percent)}%"><span class="quota-bar-fill ${getQuotaBarClass(percent)}" style="width: ${width}%"></span></span>`;
+        }
+
+        function getQuotaStatusHtml(upstream) {
+            const quota = CLIProxyAPIQuotaStatus[upstream.name];
+            if (!quota) return '';
+            if (quota.error) return `<div class="quota-status quota-error">${t('quota_failed')}: ${escapeHtml(quota.error)}</div>`;
+            const windows = (quota.windows || []).filter(w => ['five_hour', 'weekly', 'weekly_sonnet', 'weekly_opus'].includes(w.id));
+            if (windows.length === 0) return '';
+            const parts = windows.map(w => {
+                const percent = typeof w.used_percent === 'number' ? w.used_percent : null;
+                const pct = percent === null ? '-' : `${Math.round(percent)}%`;
+                return `<span class="quota-window">${escapeHtml(getQuotaLabel(w.id, w.label))} ${t('quota_used')} ${pct}${getQuotaBarHtml(percent)}${formatQuotaReset(w.reset_at)}</span>`;
+            });
+            return `<div class="quota-status">${parts.join(' · ')}</div>`;
+        }
+
         function getTokenStatusHtml(upstream) {
             if (isCLIProxyApiUpstream(upstream)) {
                 const status = CLIProxyAPIAccountStatus[upstream.name];
@@ -2081,7 +2182,7 @@
                             expHtml += ' <span class="token-refresh-info">' + t('token_refresh_est') + refreshStr + ')</span>';
                         }
                     }
-                    return `<div class="token-status valid">${status.email || ''}${expHtml}</div>`;
+                    return `<div class="token-status valid">${status.email || ''}${expHtml}</div>${getQuotaStatusHtml(upstream)}`;
                 }
                 return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
             }
@@ -2377,6 +2478,10 @@
                                 expires_at: acc.expiresAt,
                                 lastRefresh: acc.lastRefresh,
                             };
+                            const upstream = getUpstream(upstreamName);
+                            if (upstream) {
+                                await loadCLIProxyAPIQuotaStatus([upstream]);
+                            }
                             renderUpstreams();
                             showStatus('登录成功: ' + acc.email, 'success');
                         }
@@ -2394,12 +2499,35 @@
             }, 5 * 60 * 1000);
         }
 
+        async function loadCLIProxyAPIQuotaStatus(upstreams) {
+            if (!upstreams || upstreams.length === 0) return;
+            try {
+                const resp = await fetch('/api/cli-proxy-api/quota');
+                if (!resp.ok) return;
+                const quotas = await resp.json();
+                for (const up of upstreams) {
+                    const providerId = getCLIProxyAPIProviderId(up.auth.type);
+                    const provider = providerId && quotas.providers && quotas.providers[providerId];
+                    if (!provider || !provider.accounts || provider.accounts.length === 0) {
+                        delete CLIProxyAPIQuotaStatus[up.name];
+                        continue;
+                    }
+                    const status = CLIProxyAPIAccountStatus[up.name];
+                    const account = provider.accounts.find(acc => status && status.email && acc.email === status.email) || provider.accounts[0];
+                    CLIProxyAPIQuotaStatus[up.name] = account;
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
         async function CLIProxyAPIRefreshStatus(upstreamName) {
             try {
                 const resp = await fetch('/api/cli-proxy-api/status');
                 if (resp.ok) {
                     const accounts = await resp.json();
-                    const provider = getUpstream(upstreamName)?.auth?.type;
+                    const upstream = getUpstream(upstreamName);
+                    const provider = upstream?.auth?.type;
                     const providerId = getCLIProxyAPIProviderId(provider);
                     if (providerId && accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
                         const acc = accounts.providers[providerId].accounts[0];
@@ -2411,6 +2539,10 @@
                         };
                     } else {
                         CLIProxyAPIAccountStatus[upstreamName] = { logged_in: false };
+                        delete CLIProxyAPIQuotaStatus[upstreamName];
+                    }
+                    if (upstream && CLIProxyAPIAccountStatus[upstreamName].logged_in) {
+                        await loadCLIProxyAPIQuotaStatus([upstream]);
                     }
                     renderUpstreams();
                 }
@@ -2458,6 +2590,7 @@
                             }
                         }
                     }
+                    await loadCLIProxyAPIQuotaStatus(CLIProxyAPIUpstreams.filter(up => CLIProxyAPIAccountStatus[up.name]?.logged_in));
                 } catch (e) {
                     // ignore
                 }
