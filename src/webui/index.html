@@ -861,9 +861,20 @@
             white-space: nowrap;
         }
         .uc-btn:hover { background: #f6f7f9; border-color: #d2d5db; }
+        .uc-btn:disabled { opacity: 0.55; cursor: wait; }
         .uc-btn.danger:hover { background: #fef2f2; border-color: #f3b4b4; color: #c0392b; }
         .uc-btn.primary { color: #1e7e34; border-color: #cfe8d4; }
         .uc-btn.primary:hover { background: #f0faf2; border-color: #9bd3a6; }
+        .load-notice {
+            background: #eef7ff;
+            border: 1px solid #cfe8ff;
+            color: #215a8a;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+        .inline-loading { color: #6b7178; font-size: 13px; }
         .uc-divider { height: 1px; background: #f0f1f3; margin-top: 16px; }
         .uc-models {
             display: flex;
@@ -1221,6 +1232,13 @@
                 btn_test_connection: "测试/获取模型列表",
                 btn_debug: "🔍 调试",
                 loading: "加载中...",
+                loading_notice: "页面仍在加载：{items}。部分模型、登录状态或额度信息稍后会自动更新。",
+                loading_models: "模型列表",
+                loading_auth_status: "登录状态",
+                loading_quota: "额度信息",
+                loading_models_inline: "正在加载模型列表...",
+                loading_auth_inline: "正在检查登录状态...",
+                loading_quota_inline: "正在加载额度信息...",
                 empty_upstreams: "暂无上游配置",
                 empty_aliases: "暂无别名配置",
                 empty_model_aliases: "暂无模型别名配置",
@@ -1360,6 +1378,13 @@
                 btn_test_connection: "Test/Fetch Models",
                 btn_debug: "🔍 Debug",
                 loading: "Loading...",
+                loading_notice: "Still loading: {items}. Some model, login status, or quota information will update automatically shortly.",
+                loading_models: "model list",
+                loading_auth_status: "login status",
+                loading_quota: "quota information",
+                loading_models_inline: "Loading model list...",
+                loading_auth_inline: "Checking login status...",
+                loading_quota_inline: "Loading quota information...",
                 empty_upstreams: "No upstream configured",
                 empty_aliases: "No alias configured",
                 empty_model_aliases: "No model aliases configured",
@@ -1550,6 +1575,9 @@
         let config = { upstreams: [], aliases: [] };
         let editingAliasIndex = -1;
         let upstreamModelsCache = {};
+        let upstreamModelsLoading = false;
+        let oauthStatusLoading = false;
+        let quotaStatusLoading = false;
         let expandedModels = {};
         const ICONS = {
             link: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
@@ -2107,8 +2135,15 @@
 
         async function loadAllUpstreamModels() {
             upstreamModelsCache = {};
-            const promises = config.upstreams.filter(u => u.enabled).map(u => fetchUpstreamModels(u));
-            await Promise.all(promises);
+            const enabledUpstreams = config.upstreams.filter(u => u.enabled);
+            upstreamModelsLoading = enabledUpstreams.length > 0;
+            renderUpstreams();
+            try {
+                await Promise.all(enabledUpstreams.map(u => fetchUpstreamModels(u)));
+            } finally {
+                upstreamModelsLoading = false;
+                renderUpstreams();
+            }
         }
 
         async function toggleAutoAlias(upstreamName, modelName) {
@@ -2346,8 +2381,21 @@
             return `<span class="quota-bar"><span class="quota-bar-fill ${cls}" style="width: ${width}%"></span></span>`;
         }
 
+        function getLoadingNoticeHtml() {
+            const items = [];
+            if (upstreamModelsLoading) items.push(t('loading_models'));
+            if (oauthStatusLoading) items.push(t('loading_auth_status'));
+            if (quotaStatusLoading) items.push(t('loading_quota'));
+            if (items.length === 0) return '';
+            const separator = currentLang === 'zh' ? '、' : ', ';
+            return `<div class="load-notice" role="status" aria-live="polite">${escapeHtml(t('loading_notice').replace('{items}', items.join(separator)))}</div>`;
+        }
+
         function getQuotaStatusHtml(upstream) {
             const quota = CLIProxyAPIQuotaStatus[upstream.name];
+            if (!quota && quotaStatusLoading && CLIProxyAPIAccountStatus[upstream.name]?.logged_in) {
+                return `<div class="uc-quota"><div class="inline-loading">${t('loading_quota_inline')}</div></div>`;
+            }
             if (!quota) return '';
             if (quota.error) return `<div class="uc-quota"><div class="uc-quota-error" title="${escapeHtml(quota.error)}">${t('quota_failed')}</div></div>`;
             const windows = (quota.windows || []).filter(w => ['five_hour', 'weekly', 'weekly_sonnet', 'weekly_opus'].includes(w.id));
@@ -2365,6 +2413,9 @@
         function getAuthActions(upstream, index) {
             if (isCLIProxyApiUpstream(upstream)) {
                 const status = CLIProxyAPIAccountStatus[upstream.name];
+                if (!status && oauthStatusLoading) {
+                    return `<button class="uc-btn" disabled>${t('loading')}</button>`;
+                }
                 if (status && status.logged_in) {
                     return `<button class="uc-btn" onclick="CLIProxyAPILogin('${upstream.name}')">${t('oauth_relogin')}</button>`;
                 }
@@ -2640,6 +2691,8 @@
 
         async function loadCLIProxyAPIQuotaStatus(upstreams) {
             if (!upstreams || upstreams.length === 0) return;
+            quotaStatusLoading = true;
+            renderUpstreams();
             try {
                 const resp = await fetch('/api/cli-proxy-api/quota');
                 if (!resp.ok) return;
@@ -2657,6 +2710,9 @@
                 }
             } catch (e) {
                 // ignore
+            } finally {
+                quotaStatusLoading = false;
+                renderUpstreams();
             }
         }
 
@@ -2696,42 +2752,49 @@
 
         async function loadOAuthTokenStatus() {
             const oauthUpstreams = config.upstreams.filter(u => u.enabled && isCLIProxyApiUpstream(u));
-            for (const up of oauthUpstreams) {
-                try {
-                    const response = await fetch(`/api/auth/status/${encodeURIComponent(up.name)}`);
-                    if (response.ok) {
-                        oauthTokenStatus[up.name] = await response.json();
-                    }
-                } catch (e) {
-                    // ignore
-                }
-            }
-
-            // Load CLIProxyAPI account status
             const CLIProxyAPIUpstreams = config.upstreams.filter(u => u.enabled && isCLIProxyApiUpstream(u));
-            if (CLIProxyAPIUpstreams.length > 0) {
-                try {
-                    const resp = await fetch('/api/cli-proxy-api/status');
-                    if (resp.ok) {
-                        const accounts = await resp.json();
-                        for (const up of CLIProxyAPIUpstreams) {
-                            const providerId = getCLIProxyAPIProviderId(up.auth.type);
-                            if (providerId && accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
-                                const acc = accounts.providers[providerId].accounts[0];
-                                CLIProxyAPIAccountStatus[up.name] = {
-                                    logged_in: true,
-                                    email: acc.email,
-                                    expires_at: acc.expiresAt,
-                                    lastRefresh: acc.lastRefresh,
-                                };
-                            } else {
-                                CLIProxyAPIAccountStatus[up.name] = { logged_in: false };
+            oauthStatusLoading = oauthUpstreams.length > 0 || CLIProxyAPIUpstreams.length > 0;
+            if (oauthStatusLoading) renderUpstreams();
+            try {
+                for (const up of oauthUpstreams) {
+                    try {
+                        const response = await fetch(`/api/auth/status/${encodeURIComponent(up.name)}`);
+                        if (response.ok) {
+                            oauthTokenStatus[up.name] = await response.json();
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+
+                // Load CLIProxyAPI account status
+                if (CLIProxyAPIUpstreams.length > 0) {
+                    try {
+                        const resp = await fetch('/api/cli-proxy-api/status');
+                        if (resp.ok) {
+                            const accounts = await resp.json();
+                            for (const up of CLIProxyAPIUpstreams) {
+                                const providerId = getCLIProxyAPIProviderId(up.auth.type);
+                                if (providerId && accounts.providers && accounts.providers[providerId] && accounts.providers[providerId].account_count > 0) {
+                                    const acc = accounts.providers[providerId].accounts[0];
+                                    CLIProxyAPIAccountStatus[up.name] = {
+                                        logged_in: true,
+                                        email: acc.email,
+                                        expires_at: acc.expiresAt,
+                                        lastRefresh: acc.lastRefresh,
+                                    };
+                                } else {
+                                    CLIProxyAPIAccountStatus[up.name] = { logged_in: false };
+                                }
                             }
                         }
+                    } catch (e) {
+                        // ignore
                     }
-                } catch (e) {
-                    // ignore
                 }
+            } finally {
+                oauthStatusLoading = false;
+                renderUpstreams();
             }
 
             // Start polling if there are OAuth upstreams
@@ -2829,7 +2892,8 @@
                 list.innerHTML = `<div class="empty-state">${t('empty_upstreams')}</div>`;
                 return;
             }
-            list.innerHTML = config.upstreams.map((u, i) => {
+            const loadingNotice = getLoadingNoticeHtml();
+            const cardsHtml = config.upstreams.map((u, i) => {
                 const nameJs = u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const isCLIProxyApi = isCLIProxyApiUpstream(u);
                 const authBadge = getAuthBadge(u);
@@ -2849,6 +2913,8 @@
                             }
                         }
                         metaItems.push(`<span class="uc-meta-item"${title}>${ICONS.mail}${escapeHtml(st.email)}</span>`);
+                    } else if (!st && oauthStatusLoading) {
+                        metaItems.push(`<span class="uc-meta-item uc-meta-muted">${ICONS.mail}${t('loading_auth_inline')}</span>`);
                     } else {
                         metaItems.push(`<span class="uc-meta-item uc-meta-warn">${ICONS.mail}${t('oauth_not_logged_in')}</span>`);
                     }
@@ -2861,6 +2927,7 @@
 
                 // ---- available models (enabled first, auto-collapse by width) ----
                 const models = upstreamModelsCache[u.name] || [];
+                const isModelsPending = u.enabled && upstreamModelsLoading && !Object.prototype.hasOwnProperty.call(upstreamModelsCache, u.name);
                 const isModelEnabled = m => config.aliases.some(a => a.target_model === m && a.upstream === u.name && a.source === 'auto');
                 const sortedModels = [...models].sort((a, b) => (isModelEnabled(b) ? 1 : 0) - (isModelEnabled(a) ? 1 : 0));
                 const tagHtml = sortedModels.map(m => {
@@ -2876,12 +2943,14 @@
                     }
                     return `<span class="${tagClass}" ${onclickAttr ? `onclick="${onclickAttr}"` : ''}>${escapeHtml(m)}</span>`;
                 }).join('');
-                const modelsBlock = models.length > 0
+                const modelsBlock = (models.length > 0 || isModelsPending)
                     ? `<div class="uc-divider"></div>
                        <div class="uc-models">
                            <div class="uc-models-label">${t('available_models')}</div>
-                           <div class="uc-models-grid" data-uidx="${i}">${tagHtml}</div>
-                           <span class="uc-models-toggle" data-uidx="${i}" style="display:none" onclick="toggleModels('${nameJs}')"></span>
+                           ${isModelsPending
+                               ? `<div class="inline-loading" role="status" aria-live="polite">${t('loading_models_inline')}</div>`
+                               : `<div class="uc-models-grid" data-uidx="${i}">${tagHtml}</div>
+                                  <span class="uc-models-toggle" data-uidx="${i}" style="display:none" onclick="toggleModels('${nameJs}')"></span>`}
                        </div>`
                     : '';
 
@@ -2920,6 +2989,7 @@
                 </div>
                 `;
             }).join('');
+            list.innerHTML = loadingNotice + cardsHtml;
             requestAnimationFrame(layoutModelRows);
         };
 
