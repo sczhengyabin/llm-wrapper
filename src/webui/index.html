@@ -80,6 +80,66 @@
             padding-bottom: 10px;
             border-bottom: 1px solid #eee;
         }
+        .section-toggle {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-toggle h2 {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+            flex: 1;
+        }
+        .section-toggle .chevron {
+            display: inline-block;
+            transition: transform 0.2s;
+            font-size: 12px;
+            color: #888;
+        }
+        .section-toggle.collapsed .chevron {
+            transform: rotate(-90deg);
+        }
+        .section-toggle.collapsed + .section-body {
+            display: none;
+        }
+        .sort-btn {
+            background: none;
+            border: 1px solid #ddd;
+            color: #888;
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: all 0.15s;
+        }
+        .sort-btn:hover {
+            background: #e9ecef;
+            color: #333;
+            border-color: #bbb;
+        }
+        .sort-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .sort-btn:disabled:hover {
+            background: none;
+            color: #888;
+            border-color: #ddd;
+        }
+        .sort-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-right: 8px;
+        }
         .btn {
             background: #007bff;
             color: white;
@@ -147,6 +207,7 @@
             margin-top: 15px;
         }
         .item-card {
+            position: relative;
             background: #f8f9fa;
             border: 1px solid #e9ecef;
             border-radius: 4px;
@@ -740,22 +801,16 @@
         }
         .quota-status {
             color: #6c757d;
-            font-size: 11px;
+            font-size: 13px;
             margin-top: 2px;
         }
         .quota-status.quota-error {
             color: #dc3545;
         }
-        .quota-window {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            white-space: nowrap;
-        }
         .quota-bar {
             display: inline-block;
-            width: 34px;
-            height: 4px;
+            width: 54px;
+            height: 6px;
             background: #e9ecef;
             border-radius: 999px;
             overflow: hidden;
@@ -771,6 +826,33 @@
         }
         .quota-bar-fill.danger {
             background: #dc3545;
+        }
+        .quota-corner {
+            position: absolute;
+            top: 12px;
+            right: 16px;
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .quota-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            font-size: 13px;
+            color: #6c757d;
+        }
+        .quota-label {
+            min-width: 60px;
+            text-align: right;
+            color: #888;
+        }
+        .quota-value {
+            min-width: 36px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
         }
         .oauth-login-modal-body {
             text-align: center;
@@ -825,32 +907,45 @@
 
         <!-- Aggregated Models -->
         <div class="section">
-            <h2 data-i18n="section_models">聚合模型列表</h2>
-            <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="models_desc">
-                所有可通过 <code>/v1/models</code> API 获取的模型别名（按上游分组）
-            </p>
-            <div id="aggregatedModelsTable">
-                <div class="loading" data-i18n="loading">加载中...</div>
+            <div class="section-toggle" data-section="models" onclick="toggleSection(this)">
+                <h2 data-i18n="section_models">聚合模型列表</h2>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="section-body">
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="models_desc">
+                    所有可通过 <code>/v1/models</code> API 获取的模型别名（按上游分组）
+                </p>
+                <div id="aggregatedModelsTable">
+                    <div class="loading" data-i18n="loading">加载中...</div>
+                </div>
             </div>
         </div>
 
         <!-- Upstream Config -->
         <div class="section">
-            <div class="section-header">
+            <div class="section-toggle" data-section="upstreams" onclick="toggleSection(this)">
                 <h2 data-i18n="section_upstreams">上游配置</h2>
+                <span class="chevron">▼</span>
             </div>
-            <button class="btn" data-i18n="btn_add_upstream" onclick="openUpstreamModal()">添加上游</button>
-            <div class="item-list" id="upstreamList">
-                <div class="empty-state" data-i18n="loading">加载中...</div>
+            <div class="section-body">
+                <button class="btn" data-i18n="btn_add_upstream" onclick="openUpstreamModal()">添加上游</button>
+                <div class="item-list" id="upstreamList">
+                    <div class="empty-state" data-i18n="loading">加载中...</div>
+                </div>
             </div>
         </div>
 
         <!-- Alias Config -->
         <div class="section">
-            <h2 data-i18n="section_aliases">模型别名配置</h2>
-            <button class="btn" data-i18n="btn_add_alias" onclick="openAliasModal()">添加别名</button>
-            <div class="item-list" id="aliasList">
-                <div class="empty-state" data-i18n="loading">加载中...</div>
+            <div class="section-toggle" data-section="aliases" onclick="toggleSection(this)">
+                <h2 data-i18n="section_aliases">模型别名配置</h2>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="section-body">
+                <button class="btn" data-i18n="btn_add_alias" onclick="openAliasModal()">添加别名</button>
+                <div class="item-list" id="aliasList">
+                    <div class="empty-state" data-i18n="loading">加载中...</div>
+                </div>
             </div>
         </div>
 
@@ -1365,6 +1460,14 @@
             applyI18n();
         }
 
+        function toggleSection(el) {
+            el.classList.toggle('collapsed');
+            try {
+                const key = 'llm-wrapper-section-' + el.dataset.section;
+                localStorage.setItem(key, el.classList.contains('collapsed') ? '1' : '0');
+            } catch(e) {}
+        }
+
         // === App State ===
         let config = { upstreams: [], aliases: [] };
         let editingAliasIndex = -1;
@@ -1395,6 +1498,14 @@
                     applyI18n();
                 }
             } catch(e) {}
+            // Restore section collapse state
+            document.querySelectorAll('.section-toggle[data-section]').forEach(el => {
+                try {
+                    if (localStorage.getItem('llm-wrapper-section-' + el.dataset.section) === '1') {
+                        el.classList.add('collapsed');
+                    }
+                } catch(e) {}
+            });
             loadVersion();
             loadConfig();
         });
@@ -2150,15 +2261,15 @@
         function getQuotaStatusHtml(upstream) {
             const quota = CLIProxyAPIQuotaStatus[upstream.name];
             if (!quota) return '';
-            if (quota.error) return `<div class="quota-status quota-error">${t('quota_failed')}: ${escapeHtml(quota.error)}</div>`;
+            if (quota.error) return `<div class="quota-corner"><div class="quota-status quota-error">${t('quota_failed')}: ${escapeHtml(quota.error)}</div></div>`;
             const windows = (quota.windows || []).filter(w => ['five_hour', 'weekly', 'weekly_sonnet', 'weekly_opus'].includes(w.id));
             if (windows.length === 0) return '';
-            const parts = windows.map(w => {
+            const rows = windows.map(w => {
                 const percent = typeof w.used_percent === 'number' ? w.used_percent : null;
                 const pct = percent === null ? '-' : `${Math.round(percent)}%`;
-                return `<span class="quota-window">${escapeHtml(getQuotaLabel(w.id, w.label))} ${t('quota_used')} ${pct}${getQuotaBarHtml(percent)}${formatQuotaReset(w.reset_at)}</span>`;
+                return `<div class="quota-row"><span class="quota-label">${escapeHtml(getQuotaLabel(w.id, w.label))}</span> <span class="quota-value">${pct}</span>${getQuotaBarHtml(percent)}${formatQuotaReset(w.reset_at)}</div>`;
             });
-            return `<div class="quota-status">${parts.join(' · ')}</div>`;
+            return `<div class="quota-corner">${rows.join('')}</div>`;
         }
 
         function getTokenStatusHtml(upstream) {
@@ -2182,7 +2293,7 @@
                             expHtml += ' <span class="token-refresh-info">' + t('token_refresh_est') + refreshStr + ')</span>';
                         }
                     }
-                    return `<div class="token-status valid">${status.email || ''}${expHtml}</div>${getQuotaStatusHtml(upstream)}`;
+                    return `<div class="token-status valid">${status.email || ''}${expHtml}</div>`;
                 }
                 return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
             }
@@ -2633,6 +2744,15 @@
             }
         }
 
+        async function moveUpstream(index, direction) {
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= config.upstreams.length) return;
+            const temp = config.upstreams[index];
+            config.upstreams[index] = config.upstreams[newIndex];
+            config.upstreams[newIndex] = temp;
+            await saveConfig();
+        }
+
         renderUpstreams = async function () {
             const list = document.getElementById('upstreamList');
             if (config.upstreams.length === 0) {
@@ -2682,14 +2802,20 @@
                     })()
                     : null;
 
+                const quotaHtml = getQuotaStatusHtml(u);
                 return `
                 <div class="item-card">
+                    ${quotaHtml}
                     <div class="item-left">
+                        <div class="sort-actions">
+                            <button class="sort-btn" onclick="moveUpstream(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="上移">↑</button>
+                            <button class="sort-btn" onclick="moveUpstream(${i}, 1)" ${i === config.upstreams.length - 1 ? 'disabled' : ''} title="下移">↓</button>
+                        </div>
                         <label class="switch">
                             <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream(${i})">
                             <span class="slider"></span>
                         </label>
-                        <div class="item-info">
+                        <div class="item-info" ${quotaHtml ? 'style="padding-right: 180px"' : ''}>
                             <div class="item-title">${escapeHtml(u.name)} ${authBadge}</div>
                             <div class="item-detail">${escapeHtml(u.base_url)}</div>
                             ${!isOAuth ? `<div class="item-detail">${t('api_key_label')} ${apiKeyDisplay}</div>` : ''}
