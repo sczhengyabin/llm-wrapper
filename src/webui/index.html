@@ -134,12 +134,6 @@
             color: #888;
             border-color: #ddd;
         }
-        .sort-actions {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            margin-right: 8px;
-        }
         .btn {
             background: #007bff;
             color: white;
@@ -235,71 +229,62 @@
             font-size: 13px;
             color: #666;
         }
-        .models-wrapper {
-            margin-top: 8px;
-        }
-        .models-label {
-            font-size: 12px;
-            color: #999;
-            margin-bottom: 6px;
-        }
-        .models-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
         .model-tag {
             display: inline-block;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-family: monospace;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
             cursor: default;
+            transition: all .15s;
         }
         .model-tag.enabled {
-            background: #d4edda;
-            color: #155724;
-            border: 2px solid #28a745;
+            background: #e9f6ec;
+            color: #1e7e34;
+            border: 1px solid #9bd3a6;
             cursor: pointer;
         }
+        .model-tag.enabled:hover { background: #ddf0e2; }
         .model-tag.available {
-            background: #f0f9f0;
-            color: #3d8b3d;
-            border: 2px dashed #a3d9a3;
+            background: #f6f7f9;
+            color: #5a6069;
+            border: 1px solid #e2e4e9;
             cursor: pointer;
         }
+        .model-tag.available:hover { background: #eef0f3; border-color: #d2d5db; }
         .model-tag.conflict {
             background: #fef2f2;
             color: #b91c1c;
-            border: 2px dashed #fca5a5;
+            border: 1px dashed #fca5a5;
             cursor: not-allowed;
         }
         .proto-tag {
             display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-family: monospace;
+            padding: 5px 16px;
+            border-radius: 999px;
+            font-size: 12.5px;
             cursor: default;
-            min-width: 72px;
             text-align: center;
+            transition: all .15s;
         }
         .proto-tag.enabled {
-            background: #ede9fe;
-            color: #5b21b6;
-            border: 2px solid #7c3aed;
+            background: #fff;
+            color: #1f6feb;
+            border: 1px solid #9ec5f5;
             cursor: pointer;
         }
+        .proto-tag.enabled:hover { background: #f0f6ff; }
         .proto-tag.disabled {
-            background: #faf8ff;
-            color: #8b5fcf;
-            border: 2px dashed #c4b5fd;
+            background: #fafbfc;
+            color: #aab0b8;
+            border: 1px dashed #dcdfe4;
             cursor: pointer;
         }
+        .proto-tag.disabled:hover { border-color: #c4c8cf; }
         .proto-tag.fixed {
-            opacity: 0.6;
-            cursor: not-allowed;
+            cursor: default;
         }
+        .proto-tag.fixed:hover { background: #fff; }
         .source-tag {
             display: inline-block;
             padding: 2px 6px;
@@ -761,98 +746,187 @@
         }
         .auth-badge {
             display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 12.5px;
             font-weight: 600;
-            margin-left: 8px;
+            white-space: nowrap;
         }
         .auth-badge.api-key {
-            background: #d4edda;
-            color: #155724;
+            background: #e7f5ec;
+            color: #1e7e34;
         }
         .auth-badge.oauth {
-            background: #cce5ff;
-            color: #004085;
+            background: #e7f0fd;
+            color: #1f6feb;
+        }
+        .auth-badge.cli-claude {
+            background: #fdf0e3;
+            color: #b9710c;
+        }
+        .auth-badge.cli-codex {
+            background: #e7f0fd;
+            color: #1f6feb;
         }
         .auth-badge.CLIProxyAPI {
-            background: #e2d5f1;
-            color: #6f42c1;
+            background: #eef0f3;
+            color: #5a6069;
         }
-        .token-status {
-            font-size: 12px;
-            margin-top: 4px;
+        /* ===== Upstream card (redesigned) ===== */
+        .upstream-card {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #fff;
+            border: 1px solid #ececef;
+            border-radius: 14px;
+            padding: 18px 16px 18px 14px;
+            margin-bottom: 14px;
+            box-shadow: 0 1px 3px rgba(16,24,40,0.05);
         }
-        .token-status.valid {
-            color: #28a745;
+        .uc-body { flex: 1; min-width: 0; }
+        .uc-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
         }
-        .token-status.expiring {
-            color: #ffc107;
+        .uc-left { flex: 1; min-width: 0; }
+        .uc-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 16px;
+            flex-shrink: 0;
         }
-        .token-status.expired {
-            color: #dc3545;
+        .uc-title-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
         }
-        .token-status.no-token {
-            color: #999;
+        .uc-name {
+            font-size: 19px;
+            font-weight: 700;
+            color: #1f2329;
+            line-height: 1.2;
         }
-        .token-refresh-info {
-            color: #6c757d;
-            font-size: 11px;
+        .uc-drag {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #c2c6cd;
+            cursor: grab;
+            padding: 2px;
+            border-radius: 6px;
+            flex-shrink: 0;
+            transition: color .15s, background .15s;
         }
-        .quota-status {
-            color: #6c757d;
+        .uc-drag:hover { color: #8a909a; background: #f2f3f5; }
+        .uc-drag:active { cursor: grabbing; }
+        .upstream-card.dragging { opacity: .45; }
+        .upstream-card.drop-before { box-shadow: 0 1px 3px rgba(16,24,40,.05), inset 0 3px 0 -1px #4a9eea; }
+        .upstream-card.drop-after { box-shadow: 0 1px 3px rgba(16,24,40,.05), inset 0 -3px 0 -1px #4a9eea; }
+        .uc-meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px 22px;
+            margin-top: 13px;
             font-size: 13px;
-            margin-top: 2px;
+            color: #5a6069;
         }
-        .quota-status.quota-error {
-            color: #dc3545;
+        .uc-meta-item { display: inline-flex; align-items: center; gap: 6px; }
+        .uc-meta-item svg { color: #9aa0a8; flex-shrink: 0; }
+        .uc-meta-muted { color: #aab0b8; }
+        .uc-meta-warn { color: #d99100; }
+        .uc-protocols {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 13px;
+            flex-wrap: wrap;
         }
+        .uc-actions { display: flex; gap: 9px; }
+        .uc-btn {
+            background: #fff;
+            border: 1px solid #e2e4e9;
+            color: #2b2f36;
+            padding: 9px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all .15s;
+            white-space: nowrap;
+        }
+        .uc-btn:hover { background: #f6f7f9; border-color: #d2d5db; }
+        .uc-btn.danger:hover { background: #fef2f2; border-color: #f3b4b4; color: #c0392b; }
+        .uc-btn.primary { color: #1e7e34; border-color: #cfe8d4; }
+        .uc-btn.primary:hover { background: #f0faf2; border-color: #9bd3a6; }
+        .uc-divider { height: 1px; background: #f0f1f3; margin-top: 16px; }
+        .uc-models {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 14px;
+        }
+        .uc-models-label { font-size: 13px; color: #8a909a; flex-shrink: 0; }
+        .uc-models-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            flex: 1;
+            min-width: 0;
+        }
+        .uc-models-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 7px 15px;
+            border: 1px solid #e2e4e9;
+            border-radius: 10px;
+            font-size: 13px;
+            color: #5a6069;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: all .15s;
+        }
+        .uc-models-toggle:hover { background: #f6f7f9; border-color: #d2d5db; }
+        .uc-models-toggle svg { transition: transform .2s; }
+        .uc-models-toggle.expanded svg { transform: rotate(180deg); }
+        .uc-quota { display: flex; flex-direction: column; gap: 8px; }
+        .uc-quota-error { color: #e5484d; font-size: 13px; white-space: nowrap; cursor: help; }
+        .quota-row {
+            display: grid;
+            grid-template-columns: 48px 120px 40px auto;
+            align-items: center;
+            gap: 10px;
+            white-space: nowrap;
+            font-size: 13px;
+            color: #6b7178;
+        }
+        .quota-label { text-align: left; color: #8a909a; }
+        .quota-value { text-align: right; font-variant-numeric: tabular-nums; color: #2b2f36; font-weight: 600; }
+        .quota-reset { color: #aab0b8; font-size: 12px; }
         .quota-bar {
-            display: inline-block;
-            width: 54px;
-            height: 6px;
-            background: #e9ecef;
+            width: 120px;
+            height: 7px;
+            background: #edeef1;
             border-radius: 999px;
             overflow: hidden;
-            vertical-align: middle;
         }
         .quota-bar-fill {
             display: block;
             height: 100%;
-            background: #28a745;
+            background: #2da44e;
+            border-radius: 999px;
         }
         .quota-bar-fill.warn {
-            background: #ffc107;
+            background: #f0a020;
         }
         .quota-bar-fill.danger {
-            background: #dc3545;
-        }
-        .quota-corner {
-            position: absolute;
-            top: 12px;
-            right: 16px;
-            text-align: right;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-        }
-        .quota-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            white-space: nowrap;
-            font-size: 13px;
-            color: #6c757d;
-        }
-        .quota-label {
-            min-width: 60px;
-            text-align: right;
-            color: #888;
-        }
-        .quota-value {
-            min-width: 36px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
+            background: #e5484d;
         }
         .oauth-login-modal-body {
             text-align: center;
@@ -1151,6 +1225,8 @@
                 empty_aliases: "暂无别名配置",
                 empty_model_aliases: "暂无模型别名配置",
                 available_models: "可用模型",
+                models_collapse: "收起",
+                drag_sort: "拖动排序",
                 alias_name_col: "Alias 名称",
                 upstream_col: "上游",
                 target_model_col: "目标模型",
@@ -1265,7 +1341,7 @@
                 quota_weekly_sonnet: "Sonnet周限额",
                 quota_weekly_opus: "Opus周限额",
                 quota_used: "已用",
-                quota_reset: " 重置: ",
+                quota_reset: "重置 ",
                 quota_failed: "额度查询失败",
 
             },
@@ -1288,6 +1364,8 @@
                 empty_aliases: "No alias configured",
                 empty_model_aliases: "No model aliases configured",
                 available_models: "Available Models",
+                models_collapse: "Collapse",
+                drag_sort: "Drag to reorder",
                 alias_name_col: "Alias Name",
                 upstream_col: "Upstream",
                 target_model_col: "Target Model",
@@ -1402,7 +1480,7 @@
                 quota_weekly_sonnet: "Sonnet weekly",
                 quota_weekly_opus: "Opus weekly",
                 quota_used: "used",
-                quota_reset: " reset: ",
+                quota_reset: "reset ",
                 quota_failed: "Quota fetch failed",
             }
         };
@@ -1472,6 +1550,18 @@
         let config = { upstreams: [], aliases: [] };
         let editingAliasIndex = -1;
         let upstreamModelsCache = {};
+        let expandedModels = {};
+        const ICONS = {
+            link: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+            mail: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 7L2 7"/></svg>',
+            key: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.3-8.3"/><path d="m17 5 2.5 2.5"/><path d="m14 8 2.5 2.5"/></svg>',
+            chevron: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+            drag: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg>'
+        };
+        function toggleModels(name) {
+            expandedModels[name] = !expandedModels[name];
+            layoutModelRows();
+        }
 
         let debugData = {
             client: null,
@@ -1694,13 +1784,10 @@
             const isCLIProxyApi = isCLIProxyApiUpstream(u);
             // CLIProxyAPI upstreams: all protocols enabled, not clickable
             return `
-            <div class="item-detail" style="margin-top: 4px;">
-                <div style="font-size: 11px; color: #999; margin-bottom: 4px;">支持协议</div>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    ${protoTagHtml('Chat', isCLIProxyApi || u.support_chat_completions === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_chat_completions')`)}
-                    ${protoTagHtml('Responses', isCLIProxyApi || u.support_responses === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_responses')`)}
-                    ${protoTagHtml('Anthropic', isCLIProxyApi || u.support_anthropic_messages === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_anthropic_messages')`)}
-                </div>
+            <div class="uc-protocols">
+                ${protoTagHtml('Chat', isCLIProxyApi || u.support_chat_completions === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_chat_completions')`)}
+                ${protoTagHtml('Responses', isCLIProxyApi || u.support_responses === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_responses')`)}
+                ${protoTagHtml('Anthropic', isCLIProxyApi || u.support_anthropic_messages === true, isCLIProxyApi ? null : `toggleUpstreamProtocol(${i}, 'support_anthropic_messages')`)}
             </div>`;
         }
 
@@ -2210,12 +2297,13 @@
 
         function getAuthBadge(upstream) {
             if (isCLIProxyApiUpstream(upstream)) {
-                const provider = upstream.auth.type === 'anthropic_oauth' ? 'Claude Code'
-                    : upstream.auth.type === 'codex_oauth' ? 'Codex' : 'CLIProxyAPI';
-                return `<span class="auth-badge CLIProxyAPI">${provider} (CLIProxyAPI)</span>`;
-            }
-            if (isCLIProxyApiUpstream(upstream)) {
-                return '<span class="auth-badge oauth">OAuth</span>';
+                if (upstream.auth.type === 'anthropic_oauth') {
+                    return '<span class="auth-badge cli-claude">Claude Code (CLIProxyAPI)</span>';
+                }
+                if (upstream.auth.type === 'codex_oauth') {
+                    return '<span class="auth-badge cli-codex">Codex (CLIProxyAPI)</span>';
+                }
+                return '<span class="auth-badge CLIProxyAPI">CLIProxyAPI</span>';
             }
             return '<span class="auth-badge api-key">API Key</span>';
         }
@@ -2243,7 +2331,7 @@
                 date = new Date(resetAt);
             }
             if (Number.isNaN(date.getTime())) return '';
-            return t('quota_reset') + date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+            return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
         }
 
         function getQuotaBarClass(percent) {
@@ -2253,96 +2341,36 @@
         }
 
         function getQuotaBarHtml(percent) {
-            if (typeof percent !== 'number') return '';
-            const width = Math.max(0, Math.min(100, percent));
-            return `<span class="quota-bar" title="${t('quota_used')} ${Math.round(percent)}%"><span class="quota-bar-fill ${getQuotaBarClass(percent)}" style="width: ${width}%"></span></span>`;
+            const width = typeof percent === 'number' ? Math.max(0, Math.min(100, percent)) : 0;
+            const cls = typeof percent === 'number' ? getQuotaBarClass(percent) : '';
+            return `<span class="quota-bar"><span class="quota-bar-fill ${cls}" style="width: ${width}%"></span></span>`;
         }
 
         function getQuotaStatusHtml(upstream) {
             const quota = CLIProxyAPIQuotaStatus[upstream.name];
             if (!quota) return '';
-            if (quota.error) return `<div class="quota-corner"><div class="quota-status quota-error">${t('quota_failed')}: ${escapeHtml(quota.error)}</div></div>`;
+            if (quota.error) return `<div class="uc-quota"><div class="uc-quota-error" title="${escapeHtml(quota.error)}">${t('quota_failed')}</div></div>`;
             const windows = (quota.windows || []).filter(w => ['five_hour', 'weekly', 'weekly_sonnet', 'weekly_opus'].includes(w.id));
             if (windows.length === 0) return '';
             const rows = windows.map(w => {
                 const percent = typeof w.used_percent === 'number' ? w.used_percent : null;
                 const pct = percent === null ? '-' : `${Math.round(percent)}%`;
-                return `<div class="quota-row"><span class="quota-label">${escapeHtml(getQuotaLabel(w.id, w.label))}</span> <span class="quota-value">${pct}</span>${getQuotaBarHtml(percent)}${formatQuotaReset(w.reset_at)}</div>`;
+                const reset = formatQuotaReset(w.reset_at);
+                const resetHtml = reset ? `<span class="quota-reset">${t('quota_reset')}${reset}</span>` : '<span></span>';
+                return `<div class="quota-row"><span class="quota-label">${escapeHtml(getQuotaLabel(w.id, w.label))}</span>${getQuotaBarHtml(percent)}<span class="quota-value">${pct}</span>${resetHtml}</div>`;
             });
-            return `<div class="quota-corner">${rows.join('')}</div>`;
-        }
-
-        function getTokenStatusHtml(upstream) {
-            if (isCLIProxyApiUpstream(upstream)) {
-                const status = CLIProxyAPIAccountStatus[upstream.name];
-                if (status && status.logged_in) {
-                    let expHtml = '';
-                    if (status.expires_at) {
-                        const expires = new Date(status.expires_at);
-                        const expStr = expires.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-                        expHtml = ' <span title="' + t('token_expires_at') + ' ' + expStr + '">' + t('token_expires') + expStr + '</span>';
-                        // Calculate estimated refresh time (5 days before expiry)
-                        const now = new Date();
-                        const diffDays = (expires - now) / (1000 * 60 * 60 * 24);
-                        if (diffDays > 0 && diffDays <= 5) {
-                            const hours = Math.ceil(diffDays * 24);
-                            expHtml += ' <span class="token-refresh-info" title="' + t('token_auto_refresh_hint') + '">' + t('token_refresh_in') + hours + 'h)</span>';
-                        } else if (diffDays > 5) {
-                            const refreshDate = new Date(expires.getTime() - 5 * 24 * 60 * 60 * 1000);
-                            const refreshStr = refreshDate.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-                            expHtml += ' <span class="token-refresh-info">' + t('token_refresh_est') + refreshStr + ')</span>';
-                        }
-                    }
-                    return `<div class="token-status valid">${status.email || ''}${expHtml}</div>`;
-                }
-                return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
-            }
-            if (!isCLIProxyApiUpstream(upstream)) return '';
-            const status = oauthTokenStatus[upstream.name];
-            if (!status) return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
-
-            if (status.status === 'success') {
-                let cls = 'valid';
-                let msg = status.message || t('oauth_logged_in');
-                if (status.expires_at) {
-                    const expires = new Date(status.expires_at);
-                    const now = new Date();
-                    const diff = (expires - now) / 1000; // seconds
-                    if (diff < 300) {
-                        cls = 'expiring';
-                        msg = msg + ' (即将过期)';
-                    } else if (diff < 0) {
-                        cls = 'expired';
-                        msg = t('oauth_not_logged_in');
-                    } else {
-                        const expStr = expires.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-                        msg = t('oauth_logged_in') + ' (' + expStr + ')';
-                    }
-                }
-                return `<div class="token-status ${cls}">${msg}</div>`;
-            } else if (status.status === 'pending') {
-                return `<div class="token-status expiring">${t('oauth_logining')}</div>`;
-            } else if (status.status === 'expired') {
-                return `<div class="token-status expired">${t('oauth_not_logged_in')} - ${status.message || ''}</div>`;
-            }
-            return `<div class="token-status no-token">${t('oauth_not_logged_in')}</div>`;
+            return `<div class="uc-quota">${rows.join('')}</div>`;
         }
 
         function getAuthActions(upstream, index) {
             if (isCLIProxyApiUpstream(upstream)) {
                 const status = CLIProxyAPIAccountStatus[upstream.name];
                 if (status && status.logged_in) {
-                    return `<button class="btn btn-secondary" onclick="CLIProxyAPILogin('${upstream.name}')">${t('oauth_relogin')}</button>`;
+                    return `<button class="uc-btn" onclick="CLIProxyAPILogin('${upstream.name}')">${t('oauth_relogin')}</button>`;
                 }
-                return `<button class="btn btn-success" onclick="CLIProxyAPILogin('${upstream.name}')">${t('oauth_login')}</button>`;
+                return `<button class="uc-btn primary" onclick="CLIProxyAPILogin('${upstream.name}')">${t('oauth_login')}</button>`;
             }
-            if (!isCLIProxyApiUpstream(upstream)) return '';
-            const status = oauthTokenStatus[upstream.name];
-            let html = `<button class="btn btn-success" onclick="oauthLogin('${upstream.name}')">${t('oauth_login')}</button>`;
-            if (status && status.status === 'success') {
-                html += `<button class="btn btn-secondary" onclick="oauthLogout('${upstream.name}')">${t('oauth_logout')}</button>`;
-            }
-            return html;
+            return '';
         }
 
         // Toggle auth type fields in upstream modal
@@ -2701,7 +2729,6 @@
                             }
                         }
                     }
-                    await loadCLIProxyAPIQuotaStatus(CLIProxyAPIUpstreams.filter(up => CLIProxyAPIAccountStatus[up.name]?.logged_in));
                 } catch (e) {
                     // ignore
                 }
@@ -2722,7 +2749,7 @@
                 if (prevCount > 0 || newCount > 0) {
                     renderUpstreams();
                 }
-            }, 60000); // every 60 seconds
+            }, 600000); // every 10 minutes
         }
 
         async function fetchUpstreamModels(upstream) {
@@ -2744,12 +2771,55 @@
             }
         }
 
-        async function moveUpstream(index, direction) {
-            const newIndex = index + direction;
-            if (newIndex < 0 || newIndex >= config.upstreams.length) return;
-            const temp = config.upstreams[index];
-            config.upstreams[index] = config.upstreams[newIndex];
-            config.upstreams[newIndex] = temp;
+        let dragSrcIndex = null;
+        function enableCardDrag(idx) {
+            const card = document.querySelector(`#upstreamList .upstream-card[data-uidx="${idx}"]`);
+            if (card) card.setAttribute('draggable', 'true');
+        }
+        function clearDropMarkers() {
+            document.querySelectorAll('#upstreamList .upstream-card').forEach(c => c.classList.remove('drop-before', 'drop-after'));
+        }
+        function onCardDragStart(e, idx) {
+            dragSrcIndex = idx;
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', String(idx)); } catch (_) {}
+            e.currentTarget.classList.add('dragging');
+        }
+        function onCardDragOver(e, idx) {
+            if (dragSrcIndex === null) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const card = e.currentTarget;
+            const rect = card.getBoundingClientRect();
+            const after = e.clientY > rect.top + rect.height / 2;
+            clearDropMarkers();
+            if (idx !== dragSrcIndex) card.classList.add(after ? 'drop-after' : 'drop-before');
+        }
+        function onCardDrop(e, idx) {
+            if (dragSrcIndex === null) return;
+            e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            const after = e.clientY > rect.top + rect.height / 2;
+            reorderUpstream(dragSrcIndex, after ? idx + 1 : idx);
+        }
+        function onCardDragEnd(e) {
+            if (e.currentTarget) {
+                e.currentTarget.classList.remove('dragging');
+                e.currentTarget.removeAttribute('draggable');
+            }
+            clearDropMarkers();
+            document.querySelectorAll('#upstreamList .upstream-card[draggable]').forEach(c => c.removeAttribute('draggable'));
+            dragSrcIndex = null;
+        }
+        async function reorderUpstream(from, to) {
+            const arr = config.upstreams;
+            if (from < 0 || from >= arr.length) return;
+            if (to > from) to -= 1;
+            to = Math.max(0, Math.min(arr.length - 1, to));
+            if (to === from) return;
+            const [moved] = arr.splice(from, 1);
+            arr.splice(to, 0, moved);
+            dragSrcIndex = null;
             await saveConfig();
         }
 
@@ -2760,79 +2830,143 @@
                 return;
             }
             list.innerHTML = config.upstreams.map((u, i) => {
-                const models = upstreamModelsCache[u.name] || [];
-                const modelsHtml = models.length > 0
-                    ? `<div class="models-wrapper">
-                        <div class="models-label">${t('available_models')}</div>
-                        <div class="models-grid">
-                            ${models.map(m => {
-                                const existingAlias = config.aliases.find(a =>
-                                    a.target_model === m && a.upstream === u.name && a.source === 'auto'
-                                );
-                                const hasConflict = config.aliases.some(a => a.alias === m);
-
-                                let tagClass = 'model-tag available';
-                                let onclickAttr = `toggleAutoAlias('${u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
-
-                                if (existingAlias) {
-                                    tagClass = 'model-tag enabled';
-                                } else if (hasConflict) {
-                                    tagClass = 'model-tag conflict';
-                                    onclickAttr = null;
-                                }
-
-                                const onclickStr = onclickAttr ? `onclick="${onclickAttr}"` : '';
-                                return `<span class="${tagClass}" ${onclickStr}>${escapeHtml(m)}</span>`;
-                            }).join('')}
-                        </div>
-                    </div>`
-                    : '';
-
-                const isOAuth = isCLIProxyApiUpstream(u);
+                const nameJs = u.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const isCLIProxyApi = isCLIProxyApiUpstream(u);
                 const authBadge = getAuthBadge(u);
-                const tokenStatus = getTokenStatusHtml(u);
                 const authActions = getAuthActions(u, i);
-
-                const apiKeyDisplay = !isOAuth && !isCLIProxyApi
-                    ? (() => {
-                        const key = (u.auth && u.auth.type === 'api_key' && u.auth.key) || u.api_key || '';
-                        if (!key) return t('none');
-                        return key.length > 16 ? key.substring(0, 8) + '******' + key.substring(key.length - 8) : key;
-                    })()
-                    : null;
-
                 const quotaHtml = getQuotaStatusHtml(u);
+
+                // ---- meta row (base_url + email / api key) ----
+                const metaItems = [`<span class="uc-meta-item">${ICONS.link}${escapeHtml(u.base_url)}</span>`];
+                if (isCLIProxyApi) {
+                    const st = CLIProxyAPIAccountStatus[u.name];
+                    if (st && st.logged_in && st.email) {
+                        let title = '';
+                        if (st.expires_at) {
+                            const exp = new Date(st.expires_at);
+                            if (!Number.isNaN(exp.getTime())) {
+                                title = ` title="${t('token_expires_at')} ${exp.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}"`;
+                            }
+                        }
+                        metaItems.push(`<span class="uc-meta-item"${title}>${ICONS.mail}${escapeHtml(st.email)}</span>`);
+                    } else {
+                        metaItems.push(`<span class="uc-meta-item uc-meta-warn">${ICONS.mail}${t('oauth_not_logged_in')}</span>`);
+                    }
+                } else {
+                    const key = (u.auth && u.auth.type === 'api_key' && u.auth.key) || u.api_key || '';
+                    const keyDisplay = !key ? t('none')
+                        : (key.length > 16 ? key.substring(0, 8) + '******' + key.substring(key.length - 8) : key);
+                    metaItems.push(`<span class="uc-meta-item">${ICONS.key}${escapeHtml(keyDisplay)}</span>`);
+                }
+
+                // ---- available models (enabled first, auto-collapse by width) ----
+                const models = upstreamModelsCache[u.name] || [];
+                const isModelEnabled = m => config.aliases.some(a => a.target_model === m && a.upstream === u.name && a.source === 'auto');
+                const sortedModels = [...models].sort((a, b) => (isModelEnabled(b) ? 1 : 0) - (isModelEnabled(a) ? 1 : 0));
+                const tagHtml = sortedModels.map(m => {
+                    const existingAlias = config.aliases.find(a => a.target_model === m && a.upstream === u.name && a.source === 'auto');
+                    const hasConflict = config.aliases.some(a => a.alias === m);
+                    let tagClass = 'model-tag available';
+                    let onclickAttr = `toggleAutoAlias('${nameJs}', '${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
+                    if (existingAlias) {
+                        tagClass = 'model-tag enabled';
+                    } else if (hasConflict) {
+                        tagClass = 'model-tag conflict';
+                        onclickAttr = null;
+                    }
+                    return `<span class="${tagClass}" ${onclickAttr ? `onclick="${onclickAttr}"` : ''}>${escapeHtml(m)}</span>`;
+                }).join('');
+                const modelsBlock = models.length > 0
+                    ? `<div class="uc-divider"></div>
+                       <div class="uc-models">
+                           <div class="uc-models-label">${t('available_models')}</div>
+                           <div class="uc-models-grid" data-uidx="${i}">${tagHtml}</div>
+                           <span class="uc-models-toggle" data-uidx="${i}" style="display:none" onclick="toggleModels('${nameJs}')"></span>
+                       </div>`
+                    : '';
+
                 return `
-                <div class="item-card">
-                    ${quotaHtml}
-                    <div class="item-left">
-                        <div class="sort-actions">
-                            <button class="sort-btn" onclick="moveUpstream(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="上移">↑</button>
-                            <button class="sort-btn" onclick="moveUpstream(${i}, 1)" ${i === config.upstreams.length - 1 ? 'disabled' : ''} title="下移">↓</button>
+                <div class="upstream-card" data-uidx="${i}"
+                     ondragstart="onCardDragStart(event, ${i})"
+                     ondragover="onCardDragOver(event, ${i})"
+                     ondrop="onCardDrop(event, ${i})"
+                     ondragend="onCardDragEnd(event)">
+                    <div class="uc-drag" title="${t('drag_sort')}" onmousedown="enableCardDrag(${i})">${ICONS.drag}</div>
+                    <div class="uc-body">
+                        <div class="uc-top">
+                            <div class="uc-left">
+                                <div class="uc-title-row">
+                                    <label class="switch">
+                                        <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream(${i})">
+                                        <span class="slider"></span>
+                                    </label>
+                                    <span class="uc-name">${escapeHtml(u.name)}</span>
+                                    ${authBadge}
+                                </div>
+                                <div class="uc-meta">${metaItems.join('')}</div>
+                                ${renderUpstreamProtocols(u, i)}
+                            </div>
+                            <div class="uc-right">
+                                ${quotaHtml}
+                                <div class="uc-actions">
+                                    ${authActions}
+                                    <button class="uc-btn" onclick="editUpstream(${i})">${t('btn_edit')}</button>
+                                    <button class="uc-btn danger" onclick="deleteUpstream(${i})">${t('btn_delete')}</button>
+                                </div>
+                            </div>
                         </div>
-                        <label class="switch">
-                            <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream(${i})">
-                            <span class="slider"></span>
-                        </label>
-                        <div class="item-info" ${quotaHtml ? 'style="padding-right: 180px"' : ''}>
-                            <div class="item-title">${escapeHtml(u.name)} ${authBadge}</div>
-                            <div class="item-detail">${escapeHtml(u.base_url)}</div>
-                            ${!isOAuth ? `<div class="item-detail">${t('api_key_label')} ${apiKeyDisplay}</div>` : ''}
-                            ${tokenStatus}
-                            ${renderUpstreamProtocols(u, i)}
-                            ${modelsHtml}
-                        </div>
-                    </div>
-                    <div class="item-actions">
-                        ${authActions}
-                        <button class="btn" onclick="editUpstream(${i})">${t('btn_edit')}</button>
-                        <button class="btn btn-danger" onclick="deleteUpstream(${i})">${t('btn_delete')}</button>
+                        ${modelsBlock}
                     </div>
                 </div>
                 `;
             }).join('');
+            requestAnimationFrame(layoutModelRows);
         };
+
+        function layoutModelRows() {
+            document.querySelectorAll('#upstreamList .uc-models').forEach(wrap => {
+                const grid = wrap.querySelector('.uc-models-grid');
+                const toggle = wrap.querySelector('.uc-models-toggle');
+                if (!grid || !toggle) return;
+                const u = config.upstreams[grid.dataset.uidx];
+                if (!u) return;
+                const tags = Array.from(grid.children);
+                tags.forEach(tag => { tag.style.display = ''; });
+                if (tags.length === 0) { toggle.style.display = 'none'; return; }
+                if (expandedModels[u.name]) {
+                    toggle.style.display = 'inline-flex';
+                    toggle.className = 'uc-models-toggle expanded';
+                    toggle.innerHTML = t('models_collapse') + ' ' + ICONS.chevron;
+                    return;
+                }
+                // Show toggle while measuring so its width is reserved.
+                toggle.style.display = 'inline-flex';
+                toggle.className = 'uc-models-toggle';
+                toggle.innerHTML = '+0 ' + ICONS.chevron;
+                const firstTop = tags[0].offsetTop;
+                let hidden = 0, overflow = false;
+                for (const tag of tags) {
+                    if (tag.offsetTop > firstTop) overflow = true;
+                    if (overflow) { tag.style.display = 'none'; hidden++; }
+                }
+                if (hidden === 0) {
+                    toggle.style.display = 'none';
+                } else {
+                    toggle.innerHTML = '+' + hidden + ' ' + ICONS.chevron;
+                }
+            });
+        }
+
+        let _modelLayoutTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(_modelLayoutTimer);
+            _modelLayoutTimer = setTimeout(layoutModelRows, 120);
+        });
+        document.addEventListener('mouseup', () => {
+            if (dragSrcIndex === null) {
+                document.querySelectorAll('#upstreamList .upstream-card[draggable]').forEach(c => c.removeAttribute('draggable'));
+            }
+        });
 
         saveUpstream = async function (e) {
             e.preventDefault();
@@ -2972,6 +3106,8 @@
                 renderAggregatedModels();
                 await loadAllUpstreamModels();
                 await loadOAuthTokenStatus();
+                const quotaUpstreams = config.upstreams.filter(u => u.enabled && isCLIProxyApiUpstream(u) && CLIProxyAPIAccountStatus[u.name]?.logged_in);
+                if (quotaUpstreams.length > 0) await loadCLIProxyAPIQuotaStatus(quotaUpstreams);
                 renderUpstreams();
             } catch (error) {
                 showStatus(t('status_load_failed') + error.message, 'error');
