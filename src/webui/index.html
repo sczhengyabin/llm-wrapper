@@ -80,30 +80,43 @@
             padding-bottom: 10px;
             border-bottom: 1px solid #eee;
         }
-        .section-toggle {
-            cursor: pointer;
-            user-select: none;
+        .main-tabs {
             display: flex;
-            align-items: center;
-            gap: 8px;
+            gap: 4px;
+            background: #e9ecef;
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 20px;
+            overflow-x: auto;
         }
-        .section-toggle h2 {
-            margin-bottom: 0;
-            padding-bottom: 0;
-            border-bottom: none;
+        .main-tab {
             flex: 1;
+            min-width: 120px;
+            background: none;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+            white-space: nowrap;
+            transition: all 0.2s;
         }
-        .section-toggle .chevron {
-            display: inline-block;
-            transition: transform 0.2s;
-            font-size: 12px;
-            color: #888;
+        .main-tab:hover {
+            background: rgba(255,255,255,0.65);
+            color: #333;
         }
-        .section-toggle.collapsed .chevron {
-            transform: rotate(-90deg);
+        .main-tab.active {
+            background: white;
+            color: #333;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            font-weight: 600;
         }
-        .section-toggle.collapsed + .section-body {
+        .tab-panel {
             display: none;
+        }
+        .tab-panel.active {
+            display: block;
         }
         .sort-btn {
             background: none;
@@ -1020,11 +1033,17 @@
             </div>
         </div>
 
+        <div class="main-tabs" role="tablist" aria-label="配置分类">
+            <button class="main-tab active" type="button" role="tab" aria-selected="true" data-tab="models" onclick="switchMainTab('models')" data-i18n="section_models">聚合模型列表</button>
+            <button class="main-tab" type="button" role="tab" aria-selected="false" data-tab="access-control" onclick="switchMainTab('access-control')" data-i18n="section_access_control">访问控制</button>
+            <button class="main-tab" type="button" role="tab" aria-selected="false" data-tab="upstreams" onclick="switchMainTab('upstreams')" data-i18n="section_upstreams">上游配置</button>
+            <button class="main-tab" type="button" role="tab" aria-selected="false" data-tab="aliases" onclick="switchMainTab('aliases')" data-i18n="section_aliases">模型别名配置</button>
+        </div>
+
         <!-- Aggregated Models -->
-        <div class="section">
-            <div class="section-toggle" data-section="models" onclick="toggleSection(this)">
+        <div class="section tab-panel active" data-tab-panel="models" role="tabpanel">
+            <div class="section-header">
                 <h2 data-i18n="section_models">聚合模型列表</h2>
-                <span class="chevron">▼</span>
             </div>
             <div class="section-body">
                 <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="models_desc">
@@ -1037,10 +1056,9 @@
         </div>
 
         <!-- Access Control -->
-        <div class="section">
-            <div class="section-toggle" data-section="access-control" onclick="toggleSection(this)">
+        <div class="section tab-panel" data-tab-panel="access-control" role="tabpanel">
+            <div class="section-header">
                 <h2 data-i18n="section_access_control">访问控制</h2>
-                <span class="chevron">▼</span>
             </div>
             <div class="section-body">
                 <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="access_control_desc">
@@ -1068,10 +1086,9 @@
         </div>
 
         <!-- Upstream Config -->
-        <div class="section">
-            <div class="section-toggle" data-section="upstreams" onclick="toggleSection(this)">
+        <div class="section tab-panel" data-tab-panel="upstreams" role="tabpanel">
+            <div class="section-header">
                 <h2 data-i18n="section_upstreams">上游配置</h2>
-                <span class="chevron">▼</span>
             </div>
             <div class="section-body">
                 <button class="btn" data-i18n="btn_add_upstream" onclick="openUpstreamModal()">添加上游</button>
@@ -1082,10 +1099,9 @@
         </div>
 
         <!-- Alias Config -->
-        <div class="section">
-            <div class="section-toggle" data-section="aliases" onclick="toggleSection(this)">
+        <div class="section tab-panel" data-tab-panel="aliases" role="tabpanel">
+            <div class="section-header">
                 <h2 data-i18n="section_aliases">模型别名配置</h2>
-                <span class="chevron">▼</span>
             </div>
             <div class="section-body">
                 <button class="btn" data-i18n="btn_add_alias" onclick="openAliasModal()">添加别名</button>
@@ -1680,12 +1696,16 @@
             applyI18n();
         }
 
-        function toggleSection(el) {
-            el.classList.toggle('collapsed');
-            try {
-                const key = 'llm-wrapper-section-' + el.dataset.section;
-                localStorage.setItem(key, el.classList.contains('collapsed') ? '1' : '0');
-            } catch(e) {}
+        function switchMainTab(tab) {
+            document.querySelectorAll('.main-tab').forEach(btn => {
+                const active = btn.dataset.tab === tab;
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            document.querySelectorAll('.tab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.dataset.tabPanel === tab);
+            });
+            try { localStorage.setItem('llm-wrapper-active-tab', tab); } catch(e) {}
         }
 
         // === App State ===
@@ -1997,14 +2017,12 @@
                     applyI18n();
                 }
             } catch(e) {}
-            // Restore section collapse state
-            document.querySelectorAll('.section-toggle[data-section]').forEach(el => {
-                try {
-                    if (localStorage.getItem('llm-wrapper-section-' + el.dataset.section) === '1') {
-                        el.classList.add('collapsed');
-                    }
-                } catch(e) {}
-            });
+            try {
+                const savedTab = localStorage.getItem('llm-wrapper-active-tab');
+                if (savedTab && document.querySelector(`[data-tab-panel="${savedTab}"]`)) {
+                    switchMainTab(savedTab);
+                }
+            } catch(e) {}
             loadVersion();
             checkAdminStatus();
         });
