@@ -296,6 +296,42 @@ impl ModelAlias {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClientApiKeyConfig {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    pub key: String,
+}
+
+fn deserialize_client_api_keys<'de, D>(deserializer: D) -> Result<Vec<ClientApiKeyConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+    let mut keys = Vec::new();
+    for value in values {
+        match value {
+            serde_json::Value::String(key) => keys.push(ClientApiKeyConfig {
+                name: String::new(),
+                key,
+            }),
+            serde_json::Value::Object(mut obj) => {
+                let name = obj
+                    .remove("name")
+                    .and_then(|v| v.as_str().map(ToString::to_string))
+                    .unwrap_or_default();
+                let key = obj
+                    .remove("key")
+                    .and_then(|v| v.as_str().map(ToString::to_string))
+                    .ok_or_else(|| serde::de::Error::missing_field("key"))?;
+                keys.push(ClientApiKeyConfig { name, key });
+            }
+            _ => return Err(serde::de::Error::custom("client_api_keys must contain strings or objects")),
+        }
+    }
+    Ok(keys)
+}
+
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -318,6 +354,15 @@ pub struct AppConfig {
         alias = "auth2api_api_key"
     )]
     pub cli_proxy_api_api_key: Option<String>,
+    /// WebUI 管理员密码哈希
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_password_hash: Option<String>,
+    /// 客户端访问 /v1/* API 时使用的 API key（旧字段，保存时会迁移到 client_api_keys）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_api_key: Option<String>,
+    /// 客户端访问 /v1/* API 时使用的 API key 列表
+    #[serde(default, deserialize_with = "deserialize_client_api_keys", skip_serializing_if = "Vec::is_empty")]
+    pub client_api_keys: Vec<ClientApiKeyConfig>,
 }
 
 fn default_cli_proxy_api_endpoint() -> String {

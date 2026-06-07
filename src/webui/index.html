@@ -981,12 +981,42 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <!-- Admin Login -->
+    <div class="container" id="adminLoginContainer" style="display:none; max-width: 420px; margin: 10vh auto;">
+        <div class="section">
+            <h2 id="adminLoginTitle" data-i18n="admin_login_title">管理员登录</h2>
+            <form id="adminLoginForm" onsubmit="handleAdminLogin(event)">
+                <div id="adminSetupFields" style="display:none;">
+                    <div class="form-group">
+                        <label data-i18n="admin_password_label">密码</label>
+                        <input type="password" id="adminSetupPassword" required autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="admin_confirm_password_label">确认密码</label>
+                        <input type="password" id="adminSetupPasswordConfirm" required autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn btn-success save-btn" id="adminSetupBtn" data-i18n="admin_setup_btn">创建并登录</button>
+                </div>
+                <div id="adminLoginFields" style="display:none;">
+                    <div class="form-group">
+                        <label data-i18n="admin_password_label">密码</label>
+                        <input type="password" id="adminLoginPassword" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary save-btn" id="adminLoginBtn" data-i18n="admin_login_btn">登录</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="container" id="mainContainer" style="display:none;">
         <div class="header-bar">
             <h1><span data-i18n="page_title">LLM Wrapper 配置</span> <span class="version-badge" id="versionBadge">v0.0.0</span></h1>
-            <div class="lang-switch">
-                <button class="lang-btn active" onclick="switchLang('zh')">中文</button>
-                <button class="lang-btn" onclick="switchLang('en')">EN</button>
+            <div style="display:flex; align-items:center; gap:12px;">
+                <button class="btn btn-secondary" id="adminLogoutBtn" onclick="adminLogout()" data-i18n="admin_logout_btn">退出登录</button>
+                <div class="lang-switch">
+                    <button class="lang-btn active" onclick="switchLang('zh')">中文</button>
+                    <button class="lang-btn" onclick="switchLang('en')">EN</button>
+                </div>
             </div>
         </div>
 
@@ -1003,6 +1033,37 @@
                 <div id="aggregatedModelsTable">
                     <div class="loading" data-i18n="loading">加载中...</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Access Control -->
+        <div class="section">
+            <div class="section-toggle" data-section="access-control" onclick="toggleSection(this)">
+                <h2 data-i18n="section_access_control">访问控制</h2>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="section-body">
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="access_control_desc">
+                    留空则不保护 <code>/v1/*</code> API；设置后客户端需使用 <code>Authorization: Bearer &lt;key&gt;</code> 或 <code>x-api-key</code>
+                </p>
+                <div class="form-group">
+                    <label data-i18n="client_api_keys_label">客户端 API Keys</label>
+                    <div id="clientApiKeyList" class="item-list"></div>
+                    <span class="form-hint" data-i18n="client_api_key_hint">至少保留一个 key 时客户端请求 /v1/* 需要携带 key；删除全部 key 并保存即可关闭鉴权。</span>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="new_client_api_key_name_label">名称</label>
+                    <input type="text" id="newClientApiKeyName" placeholder="例如：本机、团队、CI" data-i18n-placeholder="new_client_api_key_name_placeholder">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="new_client_api_key_label">新增 API Key</label>
+                    <div class="input-group">
+                        <input type="text" id="newClientApiKey" placeholder="输入或生成一个新 key" data-i18n-placeholder="new_client_api_key_placeholder">
+                        <button type="button" class="btn" onclick="generateClientApiKey()" data-i18n="btn_generate_key">生成随机 Key</button>
+                        <button type="button" class="btn btn-success" onclick="addClientApiKey()" data-i18n="btn_add_key">添加</button>
+                    </div>
+                </div>
+                <button class="btn btn-success save-btn" onclick="saveAccessControl()" data-i18n="btn_save_access_control">保存访问控制配置</button>
             </div>
         </div>
 
@@ -1035,6 +1096,7 @@
         </div>
 
         <div id="status" class="status" style="display: none;"></div>
+    </div>
     </div>
 
     <!-- Debug Panel -->
@@ -1361,6 +1423,33 @@
                 quota_used: "已用",
                 quota_reset: "重置 ",
                 quota_failed: "额度查询失败",
+                section_access_control: "访问控制",
+                access_control_desc: '留空则不保护 <code>/v1/*</code> API；设置后客户端需使用 <code>Authorization: Bearer &lt;key&gt;</code> 或 <code>x-api-key</code>',
+                client_api_keys_label: "客户端 API Keys",
+                new_client_api_key_name_label: "名称",
+                new_client_api_key_name_placeholder: "例如：本机、团队、CI",
+                new_client_api_key_label: "新增 API Key",
+                new_client_api_key_placeholder: "输入或生成一个新 key",
+                btn_generate_key: "生成随机 Key",
+                btn_add_key: "添加",
+                btn_show_key: "显示",
+                btn_hide_key: "隐藏",
+                client_api_key_hint: "至少保留一个 key 时客户端请求 /v1/* 需要携带 key；删除全部 key 并保存即可关闭鉴权。",
+                btn_save_access_control: "保存访问控制配置",
+                admin_login_title: "管理员登录",
+                admin_password_label: "密码",
+                admin_confirm_password_label: "确认密码",
+                admin_setup_btn: "创建并登录",
+                admin_login_btn: "登录",
+                admin_logout_btn: "退出登录",
+                status_admin_setup_success: "管理员密码已创建",
+                status_admin_login_success: "登录成功",
+                status_admin_login_required: "登录已过期，请重新登录",
+                status_admin_password_mismatch: "两次输入的密码不一致",
+                status_admin_password_empty: "请输入密码",
+                status_access_control_saved: "访问控制配置已保存",
+                status_access_control_failed: "保存访问控制配置失败：",
+                status_generated_key: "已生成随机 API Key",
 
             },
             en: {
@@ -1507,6 +1596,33 @@
                 quota_used: "used",
                 quota_reset: "reset ",
                 quota_failed: "Quota fetch failed",
+                section_access_control: "Access Control",
+                access_control_desc: 'Leave empty to leave <code>/v1/*</code> API unprotected; when set, clients must use <code>Authorization: Bearer &lt;key&gt;</code> or <code>x-api-key</code>',
+                client_api_keys_label: "Client API Keys",
+                new_client_api_key_name_label: "Name",
+                new_client_api_key_name_placeholder: "e.g. Local, Team, CI",
+                new_client_api_key_label: "New API Key",
+                new_client_api_key_placeholder: "Type or generate a new key",
+                btn_generate_key: "Generate Key",
+                btn_add_key: "Add",
+                btn_show_key: "Show",
+                btn_hide_key: "Hide",
+                client_api_key_hint: "When at least one key exists, /v1/* requests must include a key; delete all keys and save to disable.",
+                btn_save_access_control: "Save Access Control",
+                admin_login_title: "Admin Login",
+                admin_password_label: "Password",
+                admin_confirm_password_label: "Confirm Password",
+                admin_setup_btn: "Create & Login",
+                admin_login_btn: "Login",
+                admin_logout_btn: "Logout",
+                status_admin_setup_success: "Admin password created",
+                status_admin_login_success: "Login successful",
+                status_admin_login_required: "Session expired, please login again",
+                status_admin_password_mismatch: "Passwords do not match",
+                status_admin_password_empty: "Password is required",
+                status_access_control_saved: "Access control saved",
+                status_access_control_failed: "Failed to save access control: ",
+                status_generated_key: "Generated random API Key",
             }
         };
 
@@ -1541,6 +1657,7 @@
                 btn.classList.toggle('active', btn.textContent.trim() === (currentLang === 'zh' ? '中文' : 'EN'));
             });
             // Re-render dynamic content
+            renderClientApiKeys();
             renderUpstreams();
             renderAliases();
             renderAggregatedModels();
@@ -1607,6 +1724,270 @@
             }
         }
 
+        function setAdminLoginMode(mode) {
+            const loginContainer = document.getElementById('adminLoginContainer');
+            const mainContainer = document.getElementById('mainContainer');
+            const title = document.getElementById('adminLoginTitle');
+            const setupFields = document.getElementById('adminSetupFields');
+            const loginFields = document.getElementById('adminLoginFields');
+            const setupPassword = document.getElementById('adminSetupPassword');
+            const setupConfirm = document.getElementById('adminSetupPasswordConfirm');
+            const loginPassword = document.getElementById('adminLoginPassword');
+
+            setupPassword.disabled = true;
+            setupConfirm.disabled = true;
+            loginPassword.disabled = true;
+
+            if (mode === 'hidden') {
+                loginContainer.style.display = 'none';
+                mainContainer.style.display = 'block';
+                return;
+            }
+
+            mainContainer.style.display = 'none';
+            loginContainer.style.display = 'block';
+
+            if (mode === 'setup') {
+                title.textContent = currentLang === 'zh' ? '初始化管理员密码' : 'Initialize Admin Password';
+                setupFields.style.display = 'block';
+                loginFields.style.display = 'none';
+                setupPassword.disabled = false;
+                setupConfirm.disabled = false;
+            } else {
+                title.textContent = t('admin_login_title');
+                setupFields.style.display = 'none';
+                loginFields.style.display = 'block';
+                loginPassword.disabled = false;
+            }
+        }
+
+        async function checkAdminStatus() {
+            try {
+                const resp = await fetch('/api/admin/status');
+                if (!resp.ok) {
+                    showStatus(t('status_admin_login_required'), 'error');
+                    setAdminLoginMode('login');
+                    return;
+                }
+                const data = await resp.json();
+                if (data.setup_required) {
+                    setAdminLoginMode('setup');
+                } else if (data.authenticated) {
+                    setAdminLoginMode('hidden');
+                    loadConfig();
+                } else {
+                    setAdminLoginMode('login');
+                }
+            } catch(e) {
+                showStatus(t('status_admin_login_required'), 'error');
+                setAdminLoginMode('login');
+            }
+        }
+
+        async function handleAdminLogin(event) {
+            event.preventDefault();
+            const setupVisible = document.getElementById('adminSetupFields').style.display !== 'none';
+
+            if (setupVisible) {
+                const password = document.getElementById('adminSetupPassword').value;
+                const confirm = document.getElementById('adminSetupPasswordConfirm').value;
+
+                if (!password) {
+                    showStatus(t('status_admin_password_empty'), 'error');
+                    return;
+                }
+                if (password !== confirm) {
+                    showStatus(t('status_admin_password_mismatch'), 'error');
+                    return;
+                }
+
+                const resp = await fetch('/api/admin/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                if (resp.ok) {
+                    showStatus(t('status_admin_setup_success'), 'success');
+                    setAdminLoginMode('hidden');
+                    loadConfig();
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    showStatus(data.error || t('status_unknown_error'), 'error');
+                }
+                return;
+            }
+
+            const password = document.getElementById('adminLoginPassword').value;
+            if (!password) {
+                showStatus(t('status_admin_password_empty'), 'error');
+                return;
+            }
+
+            const resp = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+
+            if (resp.ok) {
+                showStatus(t('status_admin_login_success'), 'success');
+                document.getElementById('adminLoginPassword').value = '';
+                setAdminLoginMode('hidden');
+                loadConfig();
+            } else {
+                const data = await resp.json().catch(() => ({}));
+                showStatus(data.error || t('status_unknown_error'), 'error');
+            }
+        }
+
+        async function adminLogout() {
+            try {
+                await fetch('/api/admin/logout', { method: 'POST' });
+            } catch (e) {
+                // ignore
+            }
+            config = { upstreams: [], aliases: [] };
+            stopAllPolling();
+            setAdminLoginMode('login');
+            showStatus(t('status_admin_login_required'), 'success');
+        }
+
+        const visibleClientApiKeyIndexes = new Set();
+
+        function getClientApiKeys() {
+            const rawKeys = [...(config.client_api_keys || [])];
+            if (config.client_api_key) rawKeys.push({ name: '', key: config.client_api_key });
+
+            const keys = [];
+            rawKeys.forEach(item => {
+                const entry = typeof item === 'string'
+                    ? { name: '', key: item }
+                    : { name: item?.name || '', key: item?.key || '' };
+                entry.name = String(entry.name).trim();
+                entry.key = String(entry.key).trim();
+                if (entry.key && !keys.some(existing => existing.key === entry.key)) {
+                    keys.push(entry);
+                }
+            });
+            return keys;
+        }
+
+        function renderClientApiKeys() {
+            const list = document.getElementById('clientApiKeyList');
+            if (!list) return;
+            const keys = getClientApiKeys();
+            if (keys.length === 0) {
+                list.innerHTML = `<div class="empty-state">${currentLang === 'zh' ? '暂无客户端 API Key，/v1/* 鉴权已关闭' : 'No client API keys; /v1/* auth is disabled'}</div>`;
+                return;
+            }
+
+            list.innerHTML = keys.map((entry, index) => {
+                const visible = visibleClientApiKeyIndexes.has(index);
+                const shown = visible ? entry.key : maskApiKey(entry.key);
+                const title = entry.name || `API Key ${index + 1}`;
+                return `
+                    <div class="item-card">
+                        <div class="item-info">
+                            <div class="item-title">${escapeHtml(title)}</div>
+                            <div class="item-detail" style="font-family: monospace; word-break: break-all;">${escapeHtml(shown)}</div>
+                        </div>
+                        <div class="item-actions">
+                            <button class="btn btn-secondary" onclick="toggleClientApiKeyVisibility(${index})">${visible ? t('btn_hide_key') : t('btn_show_key')}</button>
+                            <button class="btn btn-danger" onclick="deleteClientApiKey(${index})">${t('btn_delete')}</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function maskApiKey(key) {
+            if (key.length <= 12) return '••••••';
+            return key.slice(0, 8) + '••••••' + key.slice(-6);
+        }
+
+        function toggleClientApiKeyVisibility(index) {
+            if (visibleClientApiKeyIndexes.has(index)) {
+                visibleClientApiKeyIndexes.delete(index);
+            } else {
+                visibleClientApiKeyIndexes.add(index);
+            }
+            renderClientApiKeys();
+        }
+
+        function generateClientApiKey() {
+            const bytes = new Uint8Array(24);
+            crypto.getRandomValues(bytes);
+            const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            document.getElementById('newClientApiKey').value = 'llmw_' + hex;
+            showStatus(t('status_generated_key'), 'success');
+        }
+
+        function addClientApiKey() {
+            const nameInput = document.getElementById('newClientApiKeyName');
+            const keyInput = document.getElementById('newClientApiKey');
+            const name = nameInput.value.trim();
+            const key = keyInput.value.trim();
+            if (!key) return;
+            const keys = getClientApiKeys();
+            if (!keys.some(entry => entry.key === key)) keys.push({ name, key });
+            config.client_api_keys = keys;
+            delete config.client_api_key;
+            nameInput.value = '';
+            keyInput.value = '';
+            renderClientApiKeys();
+        }
+
+        function deleteClientApiKey(index) {
+            const keys = getClientApiKeys();
+            keys.splice(index, 1);
+            config.client_api_keys = keys;
+            delete config.client_api_key;
+            visibleClientApiKeyIndexes.delete(index);
+            renderClientApiKeys();
+        }
+
+        async function saveAccessControl() {
+            addClientApiKey();
+            config.client_api_keys = getClientApiKeys();
+            delete config.client_api_key;
+            const success = await saveConfig();
+            if (success) {
+                showStatus(t('status_access_control_saved'), 'success');
+            } else {
+                showStatus(t('status_access_control_failed'), 'error');
+            }
+        }
+
+        function stopAllPolling() {
+            if (debugPollInterval) {
+                clearInterval(debugPollInterval);
+                debugPollInterval = null;
+            }
+            if (sseStream) {
+                sseStream.close();
+                sseStream = null;
+            }
+            if (oauthSSE) {
+                oauthSSE.close();
+                oauthSSE = null;
+            }
+            if (oauthStatusPollInterval) {
+                clearInterval(oauthStatusPollInterval);
+                oauthStatusPollInterval = null;
+            }
+        }
+
+        function handleUnauthorizedResponse(resp) {
+            if (resp.status === 401) {
+                showStatus(t('status_admin_login_required'), 'error');
+                stopAllPolling();
+                setAdminLoginMode('login');
+                return true;
+            }
+            return false;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             // Restore language preference
             try {
@@ -1625,7 +2006,7 @@
                 } catch(e) {}
             });
             loadVersion();
-            loadConfig();
+            checkAdminStatus();
         });
 
         let debugPollInterval = null;
@@ -2269,11 +2650,17 @@
 
         async function saveConfig() {
             try {
+                const payload = { ...config };
+                payload.client_api_keys = getClientApiKeys();
+                delete payload.client_api_key;
                 const response = await fetch('/api/config', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
+                    body: JSON.stringify(payload)
                 });
+                if (handleUnauthorizedResponse(response)) {
+                    return false;
+                }
                 if (response.ok) {
                     showStatus(t('status_config_saved'), 'success');
                     renderUpstreams();
@@ -3170,7 +3557,13 @@
         loadConfig = async function () {
             try {
                 const response = await fetch('/api/config');
+                if (handleUnauthorizedResponse(response)) {
+                    return;
+                }
                 config = await response.json();
+                config.client_api_keys = getClientApiKeys();
+                delete config.client_api_key;
+                renderClientApiKeys();
                 renderUpstreams();
                 renderAliases();
                 renderAggregatedModels();

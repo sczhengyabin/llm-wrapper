@@ -77,6 +77,13 @@ aliases:
 # 全局配置
 # allow_protocol_conversion: false  # 当上游不支持入口协议时，自动转换为上游支持的协议
 
+# 客户端 API Keys（可选）
+# 设置后客户端请求 /v1/* 需携带 Authorization: Bearer <key> 或 x-api-key
+# 留空或删除此段则不保护客户端 API
+# client_api_keys:
+#   - name: "本机"
+#     key: "your-client-api-key"
+
 # 环境变量
 # CONFIG_PATH: 配置文件路径，默认 config.yaml
 # BIND_ADDR: 绑定地址，默认 0.0.0.0:3000

@@ -81,6 +81,9 @@ fn test_save_and_load_config() {
         }],
         cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
         cli_proxy_api_api_key: None,
+        admin_password_hash: None,
+        client_api_key: None,
+        client_api_keys: Vec::new(),
     };
 
     save_config(&config_path, &original_config).unwrap();
@@ -125,6 +128,9 @@ fn test_save_config_with_param_overrides() {
         }],
         cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
         cli_proxy_api_api_key: None,
+        admin_password_hash: None,
+        client_api_key: None,
+        client_api_keys: Vec::new(),
     };
 
     save_config(&config_path, &config).unwrap();

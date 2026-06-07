@@ -5,7 +5,7 @@ use llm_wrapper::proxy;
 use llm_wrapper::router;
 
 use base64::{engine::general_purpose, Engine as _};
-use llm_wrapper::models::{ModelAliasSource, UpstreamAuth};
+use llm_wrapper::models::{ClientApiKeyConfig, ModelAliasSource, UpstreamAuth};
 use llm_wrapper::proxy::DebugInfo;
 use serde_json::{json, Value};
 
@@ -14,16 +14,23 @@ mod cli_proxy_api_proxy;
 
 use actix_cors::Cors;
 use actix_files as fs;
+use actix_web::cookie::{Cookie, SameSite};
 use actix_web::dev::Server;
-use actix_web::{middleware, web, App, Error, HttpResponse, HttpServer};
+use actix_web::{middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
+use argon2::password_hash::SaltString;
+use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier};
+use argon2::Argon2;
+use chrono::{DateTime, Utc};
 use config::ConfigManager;
 use futures::{stream, Stream, StreamExt};
 use models::AppConfig;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use uuid::Uuid;
 
 #[allow(dead_code)]
 struct AppState {
@@ -32,6 +39,7 @@ struct AppState {
     debug_data: web::Data<DebugDataStore>,
     stream_hub: web::Data<DebugStreamHub>,
     cli_proxy_api_manager: Option<Arc<cli_proxy_api_manager::CliProxyApiManager>>,
+    admin_sessions: web::Data<AdminSessionStore>,
 }
 
 /// 调试数据存储
@@ -76,6 +84,137 @@ impl DebugStreamHub {
             .boxed();
         stream
     }
+}
+
+#[derive(Clone, Default)]
+struct AdminSessionStore {
+    sessions: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
+}
+
+impl AdminSessionStore {
+    async fn create_session(&self) -> String {
+        let token = Uuid::new_v4().to_string();
+        let mut guard = self.sessions.write().await;
+        guard.insert(token.clone(), Utc::now());
+        token
+    }
+
+    async fn validate_session(&self, token: &str) -> bool {
+        let guard = self.sessions.read().await;
+        guard.get(token).is_some()
+    }
+
+    async fn remove_session(&self, token: &str) {
+        let mut guard = self.sessions.write().await;
+        guard.remove(token);
+    }
+}
+
+fn hash_admin_password(password: &str) -> anyhow::Result<String> {
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?
+        .to_string();
+    Ok(hash)
+}
+
+fn verify_admin_password(password: &str, hash: &str) -> bool {
+    let parsed_hash = match PasswordHash::new(hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .is_ok()
+}
+
+fn parse_admin_cookie(req: &HttpRequest) -> Option<String> {
+    req.cookie("llm_wrapper_admin_session")
+        .map(|c| c.value().to_string())
+}
+
+async fn require_admin(state: &web::Data<AppState>, req: &HttpRequest) -> Result<(), HttpResponse> {
+    let config = state.config.get_config().await;
+    if config.admin_password_hash.is_none() {
+        return Err(HttpResponse::Forbidden().json(json!({"error": "管理密码未初始化"})));
+    }
+
+    if let Some(token) = parse_admin_cookie(req) {
+        if state.admin_sessions.validate_session(&token).await {
+            return Ok(());
+        }
+    }
+
+    Err(HttpResponse::Unauthorized().json(json!({"error": "需要管理员登录"})))
+}
+
+fn admin_session_cookie(token: String) -> Cookie<'static> {
+    Cookie::build("llm_wrapper_admin_session", token)
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Strict)
+        .max_age(actix_web::cookie::time::Duration::hours(24))
+        .finish()
+}
+
+fn expired_admin_session_cookie() -> Cookie<'static> {
+    Cookie::build("llm_wrapper_admin_session", "")
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Strict)
+        .max_age(actix_web::cookie::time::Duration::seconds(0))
+        .finish()
+}
+
+fn normalize_client_api_keys(config: &mut AppConfig) {
+    if let Some(key) = config.client_api_key.take() {
+        config.client_api_keys.push(ClientApiKeyConfig {
+            name: String::new(),
+            key,
+        });
+    }
+
+    let mut keys = Vec::new();
+    for item in config.client_api_keys.drain(..) {
+        let key = item.key.trim().to_string();
+        let name = item.name.trim().to_string();
+        if !key.is_empty() && !keys.iter().any(|existing: &ClientApiKeyConfig| existing.key == key) {
+            keys.push(ClientApiKeyConfig { name, key });
+        }
+    }
+    config.client_api_keys = keys;
+}
+
+async fn require_client_api_key(
+    state: &web::Data<AppState>,
+    req: &HttpRequest,
+) -> Result<(), HttpResponse> {
+    let mut config = state.config.get_config().await;
+    normalize_client_api_keys(&mut config);
+    if config.client_api_keys.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(header_value) = req.headers().get("Authorization") {
+        if let Ok(value) = header_value.to_str() {
+            if let Some(token) = value.strip_prefix("Bearer ") {
+                if config.client_api_keys.iter().any(|item| item.key == token) {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    if let Some(header_value) = req.headers().get("x-api-key") {
+        if let Ok(value) = header_value.to_str() {
+            if config.client_api_keys.iter().any(|item| item.key == value) {
+                return Ok(());
+            }
+        }
+    }
+
+    Err(HttpResponse::Unauthorized().json(json!({"error": {"message": "Invalid or missing API key"}})))
 }
 
 fn print_usage() {
@@ -208,6 +347,7 @@ async fn main() -> std::io::Result<()> {
 
     let debug_store = web::Data::new(DebugDataStore::default());
     let stream_hub = web::Data::new(DebugStreamHub::new());
+    let admin_sessions = web::Data::new(AdminSessionStore::default());
     // 保留一份 manager 引用用于信号处理
     let cli_proxy_api_manager_for_shutdown = cli_proxy_api_manager.clone();
     let state = web::Data::new(AppState {
@@ -216,6 +356,7 @@ async fn main() -> std::io::Result<()> {
         debug_data: debug_store.clone(),
         stream_hub: stream_hub.clone(),
         cli_proxy_api_manager,
+        admin_sessions: admin_sessions.clone(),
     });
 
     // 启动服务器
@@ -280,6 +421,11 @@ async fn main() -> std::io::Result<()> {
                 web::get().to(cli_proxy_api_quota),
             )
             .route("/api/version", web::get().to(get_version))
+            // 管理员认证 API
+            .route("/api/admin/status", web::get().to(admin_status))
+            .route("/api/admin/setup", web::post().to(admin_setup))
+            .route("/api/admin/login", web::post().to(admin_login))
+            .route("/api/admin/logout", web::post().to(admin_logout))
             .route("/api/debug", web::get().to(get_debug_data))
             .route("/api/debug", web::delete().to(clear_debug_data))
             .route("/api/debug/stream", web::get().to(debug_stream))
@@ -316,13 +462,28 @@ async fn main() -> std::io::Result<()> {
     server.await
 }
 
-async fn get_config(state: web::Data<AppState>) -> HttpResponse {
-    let config = state.config.get_config().await;
+async fn get_config(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
+
+    let mut config = state.config.get_config().await;
+    normalize_client_api_keys(&mut config);
+    config.admin_password_hash = None;
     HttpResponse::Ok().json(&config)
 }
 
-async fn update_config(state: web::Data<AppState>, body: web::Json<AppConfig>) -> HttpResponse {
-    match state.config.update_config(body.into_inner()).await {
+async fn update_config(state: web::Data<AppState>, body: web::Json<AppConfig>, req: HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
+
+    let current_config = state.config.get_config().await;
+    let mut new_config = body.into_inner();
+    new_config.admin_password_hash = current_config.admin_password_hash;
+    normalize_client_api_keys(&mut new_config);
+
+    match state.config.update_config(new_config).await {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => HttpResponse::InternalServerError()
             .json(json!({"success": false, "error": e.to_string()})),
@@ -334,6 +495,9 @@ async fn chat_completions(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
+    if let Err(resp) = require_client_api_key(&state, &req).await {
+        return resp;
+    }
     handle_protocol_request(state, body.into_inner(), req, "/v1/chat/completions").await
 }
 
@@ -342,6 +506,9 @@ async fn responses(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
+    if let Err(resp) = require_client_api_key(&state, &req).await {
+        return resp;
+    }
     handle_protocol_request(state, body.into_inner(), req, "/v1/responses").await
 }
 
@@ -350,6 +517,9 @@ async fn messages(
     body: web::Json<serde_json::Value>,
     req: actix_web::HttpRequest,
 ) -> HttpResponse {
+    if let Err(resp) = require_client_api_key(&state, &req).await {
+        return resp;
+    }
     let endpoint_path = req.uri().path().to_string();
     handle_protocol_request(state, body.into_inner(), req, &endpoint_path).await
 }
@@ -516,7 +686,98 @@ async fn get_version() -> HttpResponse {
     }))
 }
 
-async fn get_debug_data(state: web::Data<AppState>) -> HttpResponse {
+async fn admin_status(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    let config = state.config.get_config().await;
+    let setup_required = config.admin_password_hash.is_none();
+
+    let authenticated = if setup_required {
+        false
+    } else if let Some(token) = parse_admin_cookie(&req) {
+        state.admin_sessions.validate_session(&token).await
+    } else {
+        false
+    };
+
+    HttpResponse::Ok().json(json!({
+        "setup_required": setup_required,
+        "authenticated": authenticated
+    }))
+}
+
+async fn admin_setup(state: web::Data<AppState>, body: web::Json<serde_json::Value>) -> HttpResponse {
+    let password = match body.get("password").and_then(|v| v.as_str()) {
+        Some(p) if !p.trim().is_empty() => p.trim().to_string(),
+        _ => {
+            return HttpResponse::BadRequest().json(json!({"error": "password 不能为空"}));
+        }
+    };
+
+    let current_config = state.config.get_config().await;
+    if current_config.admin_password_hash.is_some() {
+        return HttpResponse::Conflict().json(json!({"error": "管理员密码已设置"}));
+    }
+
+    let hash = match hash_admin_password(&password) {
+        Ok(h) => h,
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .json(json!({"error": format!("生成密码哈希失败: {}", e)}));
+        }
+    };
+
+    let mut new_config = current_config.clone();
+    new_config.admin_password_hash = Some(hash);
+    if let Err(e) = state.config.update_config(new_config).await {
+        return HttpResponse::InternalServerError()
+            .json(json!({"error": format!("保存密码失败: {}", e)}));
+    }
+
+    let token = state.admin_sessions.create_session().await;
+    let cookie = admin_session_cookie(token);
+
+    HttpResponse::Ok()
+        .cookie(cookie)
+        .json(json!({"success": true}))
+}
+
+async fn admin_login(state: web::Data<AppState>, body: web::Json<serde_json::Value>) -> HttpResponse {
+    let password = match body.get("password").and_then(|v| v.as_str()) {
+        Some(p) => p.to_string(),
+        _ => String::new(),
+    };
+
+    let config = state.config.get_config().await;
+    let hash = match &config.admin_password_hash {
+        Some(h) => h.clone(),
+        None => return HttpResponse::Forbidden().json(json!({"error": "管理员密码未初始化"})),
+    };
+
+    if !verify_admin_password(&password, &hash) {
+        return HttpResponse::Unauthorized().json(json!({"error": "密码错误"}));
+    }
+
+    let token = state.admin_sessions.create_session().await;
+    let cookie = admin_session_cookie(token);
+
+    HttpResponse::Ok()
+        .cookie(cookie)
+        .json(json!({"success": true}))
+}
+
+async fn admin_logout(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Some(token) = parse_admin_cookie(&req) {
+        state.admin_sessions.remove_session(&token).await;
+    }
+
+    HttpResponse::Ok()
+        .cookie(expired_admin_session_cookie())
+        .json(json!({"success": true}))
+}
+
+async fn get_debug_data(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     if let Some(data) = state.debug_data.get().await {
         HttpResponse::Ok().json(data)
     } else {
@@ -528,21 +789,30 @@ async fn get_debug_data(state: web::Data<AppState>) -> HttpResponse {
     }
 }
 
-async fn clear_debug_data(state: web::Data<AppState>) -> HttpResponse {
+async fn clear_debug_data(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     state.debug_data.data.write().await.take();
     HttpResponse::Ok().json(json!({"success": true}))
 }
 
 /// SSE 流式调试端点
-async fn debug_stream(state: web::Data<AppState>) -> impl actix_web::Responder {
+async fn debug_stream(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let stream = state.stream_hub.create_stream();
 
-    actix_web::HttpResponse::Ok()
+    HttpResponse::Ok()
         .content_type("text/event-stream")
         .body(actix_web::body::BodyStream::new(stream))
 }
 
-async fn list_models(state: web::Data<AppState>) -> HttpResponse {
+async fn list_models(state: web::Data<AppState>, req: actix_web::HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_client_api_key(&state, &req).await {
+        return resp;
+    }
     let config = state.config.get_config().await;
     let aliases = config.aliases;
 
@@ -679,7 +949,10 @@ async fn list_models(state: web::Data<AppState>) -> HttpResponse {
     }))
 }
 
-async fn get_upstream_models(state: web::Data<AppState>) -> HttpResponse {
+async fn get_upstream_models(state: web::Data<AppState>, req: actix_web::HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let config = state.config.get_config().await;
 
     // 并发获取所有启用上游的模型列表
@@ -763,7 +1036,11 @@ async fn webui_index() -> HttpResponse {
 async fn get_upstream_models_by_name(
     state: web::Data<AppState>,
     path: web::Path<String>,
+    req: actix_web::HttpRequest,
 ) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let upstream_name = path.into_inner();
     let config = state.config.get_config().await;
 
@@ -891,7 +1168,10 @@ fn extract_models_from_upstream_response(body: &serde_json::Value) -> Vec<(Strin
 
 // === 认证 API 处理函数 ===
 
-async fn auth_login(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
+async fn auth_login(state: web::Data<AppState>, path: web::Path<String>, req: actix_web::HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let upstream_name = path.into_inner();
     let config = state.config.get_config().await;
 
@@ -921,7 +1201,10 @@ async fn auth_login(state: web::Data<AppState>, path: web::Path<String>) -> Http
     }
 }
 
-async fn auth_clear_token(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
+async fn auth_clear_token(state: web::Data<AppState>, path: web::Path<String>, req: actix_web::HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let upstream_name = path.into_inner();
     state.auth_manager.clear_token(&upstream_name).await;
     HttpResponse::Ok().json(json!({
@@ -938,7 +1221,10 @@ fn cli_proxy_api_provider(auth: &UpstreamAuth) -> Option<&'static str> {
 }
 
 /// CLIProxyAPI 登录：发起 OAuth 登录流程
-async fn cli_proxy_api_login(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
+async fn cli_proxy_api_login(state: web::Data<AppState>, path: web::Path<String>, req: actix_web::HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let upstream_name = path.into_inner();
 
     // 验证上游存在且是 CLIProxyAPI 类型
@@ -992,7 +1278,11 @@ async fn cli_proxy_api_complete_login(
     state: web::Data<AppState>,
     path: web::Path<String>,
     body: web::Json<serde_json::Value>,
+    req: actix_web::HttpRequest,
 ) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let upstream_name = path.into_inner();
 
     let callback_url = match body.get("callback_url").and_then(|v| v.as_str()) {
@@ -1052,7 +1342,11 @@ async fn cli_proxy_api_complete_login(
 async fn cli_proxy_api_login_stream(
     state: web::Data<AppState>,
     path: web::Path<String>,
+    req: actix_web::HttpRequest,
 ) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let upstream_name = path.into_inner();
 
     let config = state.config.get_config().await;
@@ -1193,7 +1487,10 @@ fn transform_cli_proxy_api_status(body: &serde_json::Value) -> serde_json::Value
 }
 
 /// CLIProxyAPI 状态：获取账号信息
-async fn cli_proxy_api_status(state: web::Data<AppState>) -> HttpResponse {
+async fn cli_proxy_api_status(state: web::Data<AppState>, req: actix_web::HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let manager = match &state.cli_proxy_api_manager {
         Some(m) => m,
         None => {
@@ -1236,7 +1533,10 @@ async fn cli_proxy_api_status(state: web::Data<AppState>) -> HttpResponse {
     HttpResponse::Ok().json(status)
 }
 
-async fn cli_proxy_api_quota(state: web::Data<AppState>) -> HttpResponse {
+async fn cli_proxy_api_quota(state: web::Data<AppState>, req: actix_web::HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let manager = match &state.cli_proxy_api_manager {
         Some(m) => m,
         None => return HttpResponse::Ok().json(json!({"providers": {}})),
@@ -1714,7 +2014,11 @@ struct CreateAliasRequest {
 async fn create_upstream_model_alias(
     state: web::Data<AppState>,
     body: web::Json<CreateAliasRequest>,
+    req: actix_web::HttpRequest,
 ) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
     let mut config = state.config.get_config().await;
 
     // 验证上游存在且启用
