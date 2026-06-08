@@ -1017,6 +1017,7 @@
                     </div>
                     <button type="submit" class="btn btn-primary save-btn" id="adminLoginBtn" data-i18n="admin_login_btn">登录</button>
                 </div>
+                <div id="loginStatus" class="status" style="display: none;"></div>
             </form>
         </div>
     </div>
@@ -1463,6 +1464,7 @@
                 status_admin_login_required: "登录已过期，请重新登录",
                 status_admin_password_mismatch: "两次输入的密码不一致",
                 status_admin_password_empty: "请输入密码",
+                status_admin_password_wrong: "密码错误",
                 status_access_control_saved: "访问控制配置已保存",
                 status_access_control_failed: "保存访问控制配置失败：",
                 status_generated_key: "已生成随机 API Key",
@@ -1636,6 +1638,7 @@
                 status_admin_login_required: "Session expired, please login again",
                 status_admin_password_mismatch: "Passwords do not match",
                 status_admin_password_empty: "Password is required",
+                status_admin_password_wrong: "Incorrect password",
                 status_access_control_saved: "Access control saved",
                 status_access_control_failed: "Failed to save access control: ",
                 status_generated_key: "Generated random API Key",
@@ -1785,7 +1788,7 @@
             try {
                 const resp = await fetch('/api/admin/status');
                 if (!resp.ok) {
-                    showStatus(t('status_admin_login_required'), 'error');
+                    showLoginStatus(t('status_admin_login_required'), 'error');
                     setAdminLoginMode('login');
                     return;
                 }
@@ -1799,7 +1802,7 @@
                     setAdminLoginMode('login');
                 }
             } catch(e) {
-                showStatus(t('status_admin_login_required'), 'error');
+                showLoginStatus(t('status_admin_login_required'), 'error');
                 setAdminLoginMode('login');
             }
         }
@@ -1813,11 +1816,11 @@
                 const confirm = document.getElementById('adminSetupPasswordConfirm').value;
 
                 if (!password) {
-                    showStatus(t('status_admin_password_empty'), 'error');
+                    showLoginStatus(t('status_admin_password_empty'), 'error');
                     return;
                 }
                 if (password !== confirm) {
-                    showStatus(t('status_admin_password_mismatch'), 'error');
+                    showLoginStatus(t('status_admin_password_mismatch'), 'error');
                     return;
                 }
 
@@ -1828,19 +1831,19 @@
                 });
 
                 if (resp.ok) {
-                    showStatus(t('status_admin_setup_success'), 'success');
+                    showLoginStatus(t('status_admin_setup_success'), 'success');
                     setAdminLoginMode('hidden');
                     loadConfig();
                 } else {
                     const data = await resp.json().catch(() => ({}));
-                    showStatus(data.error || t('status_unknown_error'), 'error');
+                    showLoginStatus(data.error || t('status_unknown_error'), 'error');
                 }
                 return;
             }
 
             const password = document.getElementById('adminLoginPassword').value;
             if (!password) {
-                showStatus(t('status_admin_password_empty'), 'error');
+                showLoginStatus(t('status_admin_password_empty'), 'error');
                 return;
             }
 
@@ -1851,13 +1854,14 @@
             });
 
             if (resp.ok) {
-                showStatus(t('status_admin_login_success'), 'success');
+                showLoginStatus(t('status_admin_login_success'), 'success');
                 document.getElementById('adminLoginPassword').value = '';
                 setAdminLoginMode('hidden');
                 loadConfig();
             } else {
                 const data = await resp.json().catch(() => ({}));
-                showStatus(data.error || t('status_unknown_error'), 'error');
+                const msg = resp.status === 401 ? t('status_admin_password_wrong') : (data.error || t('status_unknown_error'));
+                showLoginStatus(msg, 'error');
             }
         }
 
@@ -1870,7 +1874,7 @@
             config = { upstreams: [], aliases: [] };
             stopAllPolling();
             setAdminLoginMode('login');
-            showStatus(t('status_admin_login_required'), 'success');
+            showLoginStatus(t('status_admin_login_required'), 'success');
         }
 
         const visibleClientApiKeyIndexes = new Set();
@@ -2000,9 +2004,9 @@
 
         function handleUnauthorizedResponse(resp) {
             if (resp.status === 401) {
-                showStatus(t('status_admin_login_required'), 'error');
                 stopAllPolling();
                 setAdminLoginMode('login');
+                showLoginStatus(t('status_admin_login_required'), 'error');
                 return true;
             }
             return false;
@@ -2697,6 +2701,14 @@
 
         function showStatus(message, type) {
             const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+            status.style.display = 'block';
+            setTimeout(() => { status.style.display = 'none'; }, 5000);
+        }
+
+        function showLoginStatus(message, type) {
+            const status = document.getElementById('loginStatus');
             status.textContent = message;
             status.className = 'status ' + type;
             status.style.display = 'block';
