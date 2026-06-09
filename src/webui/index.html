@@ -3168,23 +3168,10 @@
         }
 
         async function loadOAuthTokenStatus() {
-            const oauthUpstreams = config.upstreams.filter(u => u.enabled && isCLIProxyApiUpstream(u));
             const CLIProxyAPIUpstreams = config.upstreams.filter(u => u.enabled && isCLIProxyApiUpstream(u));
-            oauthStatusLoading = oauthUpstreams.length > 0 || CLIProxyAPIUpstreams.length > 0;
+            oauthStatusLoading = CLIProxyAPIUpstreams.length > 0;
             if (oauthStatusLoading) renderUpstreams();
             try {
-                for (const up of oauthUpstreams) {
-                    try {
-                        const response = await fetch(`/api/auth/status/${encodeURIComponent(up.name)}`);
-                        if (response.ok) {
-                            oauthTokenStatus[up.name] = await response.json();
-                        }
-                    } catch (e) {
-                        // ignore
-                    }
-                }
-
-                // Load CLIProxyAPI account status
                 if (CLIProxyAPIUpstreams.length > 0) {
                     try {
                         const resp = await fetch('/api/cli-proxy-api/status');
@@ -3214,8 +3201,7 @@
                 renderUpstreams();
             }
 
-            // Start polling if there are OAuth upstreams
-            if (oauthUpstreams.length > 0) {
+            if (CLIProxyAPIUpstreams.length > 0) {
                 startOAuthStatusPoll();
             }
         }
