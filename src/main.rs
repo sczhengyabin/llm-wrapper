@@ -383,6 +383,10 @@ async fn main() -> std::io::Result<()> {
             .route("/api/config", web::put().to(update_config))
             .route("/api/upstream-models", web::get().to(get_upstream_models))
             .route(
+                "/api/upstream-models/test",
+                web::post().to(test_upstream_models),
+            )
+            .route(
                 "/api/upstream-models/alias",
                 web::post().to(create_upstream_model_alias),
             )
@@ -947,6 +951,80 @@ async fn list_models(state: web::Data<AppState>, req: actix_web::HttpRequest) ->
         "object": "list",
         "data": model_objects
     }))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TestUpstreamModelsRequest {
+    base_url: String,
+    api_key: Option<String>,
+}
+
+async fn test_upstream_models(
+    state: web::Data<AppState>,
+    body: web::Json<TestUpstreamModelsRequest>,
+    req: actix_web::HttpRequest,
+) -> HttpResponse {
+    if let Err(resp) = require_admin(&state, &req).await {
+        return resp;
+    }
+
+    let base_url = body.base_url.trim().trim_end_matches('/');
+    if base_url.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "基础 URL 不能为空"
+        }));
+    }
+
+    let mut request = reqwest::Client::new()
+        .get(format!("{}/v1/models", base_url))
+        .timeout(std::time::Duration::from_secs(10));
+
+    if let Some(api_key) = body
+        .api_key
+        .as_ref()
+        .map(|k| k.trim())
+        .filter(|k| !k.is_empty() && *k != "none")
+    {
+        request = request.bearer_auth(api_key);
+    }
+
+    match request.send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            if !status.is_success() {
+                return HttpResponse::BadGateway().json(json!({
+                    "error": format!("上游请求失败：{}", status.as_u16())
+                }));
+            }
+
+            match resp.json::<serde_json::Value>().await {
+                Ok(body) => {
+                    let models: Vec<String> = extract_models_from_upstream_response(&body)
+                        .into_iter()
+                        .map(|(id, _)| id)
+                        .collect();
+                    HttpResponse::Ok().json(json!({
+                        "object": "list",
+                        "data": models
+                    }))
+                }
+                Err(e) => HttpResponse::BadGateway().json(json!({
+                    "error": format!("解析上游模型列表失败: {}", e)
+                })),
+            }
+        }
+        Err(e) => {
+            if e.is_timeout() {
+                HttpResponse::GatewayTimeout().json(json!({
+                    "error": "请求上游超时"
+                }))
+            } else {
+                HttpResponse::BadGateway().json(json!({
+                    "error": format!("请求上游失败: {}", e)
+                }))
+            }
+        }
+    }
 }
 
 async fn get_upstream_models(state: web::Data<AppState>, req: actix_web::HttpRequest) -> HttpResponse {

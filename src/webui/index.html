@@ -3544,25 +3544,28 @@
             showStatus(t('status_testing'), 'loading');
 
             try {
-                const url = `${baseUrl}/v1/models`;
-                const headers = {};
                 const apiKey = document.getElementById('upstreamApiKey').value;
-                if (apiKey && apiKey !== 'none' && apiKey.trim() !== '') {
-                    headers['Authorization'] = `Bearer ${apiKey}`;
-                }
-
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: headers,
-                    signal: AbortSignal.timeout(10000)
+                const response = await fetch('/api/upstream-models/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        base_url: baseUrl,
+                        api_key: apiKey || null
+                    }),
+                    signal: AbortSignal.timeout(12000)
                 });
+
+                if (handleUnauthorizedResponse(response)) {
+                    return;
+                }
 
                 if (response.ok) {
                     const data = await response.json();
                     const modelCount = data.data ? data.data.length : 0;
                     showStatus(t('status_connected', modelCount), 'success');
                 } else {
-                    showStatus(t('status_connect_failed', response.status), 'error');
+                    const err = await response.json().catch(() => ({}));
+                    showStatus(err.error || t('status_connect_failed', response.status), 'error');
                 }
             } catch (error) {
                 showStatus(t('status_connect_error', error.message), 'error');
