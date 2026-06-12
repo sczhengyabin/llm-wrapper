@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// 上游认证方式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -23,16 +22,8 @@ impl Default for UpstreamAuth {
 }
 
 impl UpstreamAuth {
-    /// 是否由 CLIProxyAPI 管理的认证方式
+    /// 是否为 OAuth 认证（由 CLIProxyAPI 管理）
     pub fn is_cli_proxy_api(&self) -> bool {
-        matches!(
-            self,
-            UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth
-        )
-    }
-
-    /// 是否为 OAuth 认证
-    pub fn is_oauth(&self) -> bool {
         matches!(
             self,
             UpstreamAuth::AnthropicOAuth | UpstreamAuth::CodexOAuth
@@ -247,11 +238,6 @@ impl UpstreamConfig {
         format!("{}/v1/models", self.base_url)
     }
 
-    /// 是否为 OAuth 认证
-    pub fn is_oauth(&self) -> bool {
-        self.auth.is_oauth()
-    }
-
     /// 获取 API Key（仅 ApiKey 类型）
     #[allow(dead_code)]
     pub fn api_key_value(&self) -> Option<&str> {
@@ -326,7 +312,11 @@ where
                     .ok_or_else(|| serde::de::Error::missing_field("key"))?;
                 keys.push(ClientApiKeyConfig { name, key });
             }
-            _ => return Err(serde::de::Error::custom("client_api_keys must contain strings or objects")),
+            _ => {
+                return Err(serde::de::Error::custom(
+                    "client_api_keys must contain strings or objects",
+                ))
+            }
         }
     }
     Ok(keys)
@@ -357,11 +347,18 @@ pub struct AppConfig {
     /// WebUI 管理员密码哈希
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_password_hash: Option<String>,
+    /// 管理员 session cookie 是否带 Secure 标志；不设置则按请求 scheme 自动判断
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookie_secure: Option<bool>,
     /// 客户端访问 /v1/* API 时使用的 API key（旧字段，保存时会迁移到 client_api_keys）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_api_key: Option<String>,
     /// 客户端访问 /v1/* API 时使用的 API key 列表
-    #[serde(default, deserialize_with = "deserialize_client_api_keys", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_client_api_keys",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub client_api_keys: Vec<ClientApiKeyConfig>,
 }
 
@@ -374,49 +371,6 @@ impl AppConfig {
     pub fn new() -> Self {
         Self::default()
     }
-}
-
-/// OpenAI Chat Completion 请求模型
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatCompletionRequest {
-    pub model: String,
-    pub messages: Vec<Message>,
-    #[serde(default)]
-    pub stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_p: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub frequency_penalty: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub presence_penalty: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<i64>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: String,
-    pub content: String,
-}
-
-/// OpenAI Model 响应模型
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelResponse {
-    pub id: String,
-    pub object: String,
-    pub created: u64,
-    pub owned_by: String,
 }
 
 #[cfg(test)]
@@ -436,7 +390,7 @@ mod tests {
             }]
         }"#;
         let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
-        assert!(config.upstreams[0].is_oauth());
+        assert!(config.upstreams[0].auth.is_cli_proxy_api());
     }
 
     #[test]
@@ -466,8 +420,8 @@ mod tests {
         // Parse YAML back
         let config2: AppConfig = serde_yaml::from_str(&yaml).expect("YAML parse failed");
         assert_eq!(config2.upstreams.len(), 2);
-        assert!(config2.upstreams[0].is_oauth());
-        assert!(!config2.upstreams[1].is_oauth());
+        assert!(config2.upstreams[0].auth.is_cli_proxy_api());
+        assert!(!config2.upstreams[1].auth.is_cli_proxy_api());
         // 旧格式默认 support_openai=true → chat_completions=true + responses=true
         assert!(config2.upstreams[1].support_chat_completions);
         assert!(config2.upstreams[1].support_responses);
@@ -501,6 +455,6 @@ mod tests {
             }]
         }"#;
         let config: AppConfig = serde_json::from_str(json).expect("Old format parse failed");
-        assert!(!config.upstreams[0].is_oauth());
+        assert!(!config.upstreams[0].auth.is_cli_proxy_api());
     }
 }

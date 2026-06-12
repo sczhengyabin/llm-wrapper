@@ -12,7 +12,8 @@ use reqwest::header::{
     HeaderValue as ReqwestHeaderValue, AUTHORIZATION, CONTENT_TYPE,
 };
 
-use crate::proxy::{build_endpoint_path_with_query, replace_model_only, DebugInfo};
+use crate::state::{DebugDataStore, DebugStreamHub};
+use llm_wrapper::proxy::{build_endpoint_path_with_query, replace_model_only, DebugInfo};
 
 fn is_hop_by_hop_header(name: &str) -> bool {
     name.eq_ignore_ascii_case("connection")
@@ -101,8 +102,8 @@ pub async fn proxy_to_cli_proxy_api(
     query_string: &str,
     client_headers: &ActixHeaderMap,
     body: &serde_json::Value,
-    debug_data: Option<&web::Data<crate::DebugDataStore>>,
-    stream_hub: Option<&web::Data<crate::DebugStreamHub>>,
+    debug_data: Option<&web::Data<DebugDataStore>>,
+    stream_hub: Option<&web::Data<DebugStreamHub>>,
 ) -> actix_web::HttpResponse {
     let url = format!(
         "{}{}",

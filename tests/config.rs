@@ -82,6 +82,7 @@ fn test_save_and_load_config() {
         cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
         cli_proxy_api_api_key: None,
         admin_password_hash: None,
+        cookie_secure: None,
         client_api_key: None,
         client_api_keys: Vec::new(),
     };
@@ -129,6 +130,7 @@ fn test_save_config_with_param_overrides() {
         cli_proxy_api_endpoint: "http://127.0.0.1:8317".to_string(),
         cli_proxy_api_api_key: None,
         admin_password_hash: None,
+        cookie_secure: None,
         client_api_key: None,
         client_api_keys: Vec::new(),
     };
@@ -161,9 +163,9 @@ fn test_old_support_openai_migration() {
     let config = load_config(&config_path).unwrap();
 
     // 旧 support_openai=true 应迁移为 support_chat_completions=true + support_responses=true
-    assert_eq!(config.upstreams[0].support_chat_completions, true);
-    assert_eq!(config.upstreams[0].support_responses, true);
-    assert_eq!(config.upstreams[0].support_anthropic_messages, false);
+    assert!(config.upstreams[0].support_chat_completions);
+    assert!(config.upstreams[0].support_responses);
+    assert!(!config.upstreams[0].support_anthropic_messages);
 }
 
 #[test]
@@ -182,9 +184,9 @@ fn test_old_support_anthropic_migration() {
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = load_config(&config_path).unwrap();
 
-    assert_eq!(config.upstreams[0].support_chat_completions, false);
-    assert_eq!(config.upstreams[0].support_responses, false);
-    assert_eq!(config.upstreams[0].support_anthropic_messages, true);
+    assert!(!config.upstreams[0].support_chat_completions);
+    assert!(!config.upstreams[0].support_responses);
+    assert!(config.upstreams[0].support_anthropic_messages);
 }
 
 #[test]
@@ -204,9 +206,9 @@ fn test_new_fields_roundtrip() {
     let config_path = dir.path().join("config.yaml").to_string_lossy().to_string();
     let config = load_config(&config_path).unwrap();
 
-    assert_eq!(config.upstreams[0].support_chat_completions, true);
-    assert_eq!(config.upstreams[0].support_responses, true);
-    assert_eq!(config.upstreams[0].support_anthropic_messages, true);
+    assert!(config.upstreams[0].support_chat_completions);
+    assert!(config.upstreams[0].support_responses);
+    assert!(config.upstreams[0].support_anthropic_messages);
 }
 
 #[test]

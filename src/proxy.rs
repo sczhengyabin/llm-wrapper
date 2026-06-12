@@ -13,6 +13,9 @@ const ANTHROPIC_PASSTHROUGH_HEADERS: &[&str] = &[
     "anthropic-dangerous-direct-browser-access",
 ];
 
+/// 上游请求超时：20 分钟，长上下文流式响应可能很慢
+const UPSTREAM_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1200);
+
 /// 调试信息
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct DebugInfo {
@@ -35,7 +38,7 @@ impl Proxy {
     pub fn new(auth_manager: AuthManager) -> Self {
         Self {
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(1200))
+                .timeout(UPSTREAM_REQUEST_TIMEOUT)
                 .build()
                 .expect("无法创建 HTTP 客户端"),
             auth_manager,

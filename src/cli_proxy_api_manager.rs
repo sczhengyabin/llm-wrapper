@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -69,10 +69,7 @@ impl CliProxyApiManager {
     }
 
     /// 从配置文件加载管理密钥，不存在则创建
-    fn load_or_create_management_secret(
-        config_path: &PathBuf,
-        llm_wrapper_dir: &PathBuf,
-    ) -> String {
+    fn load_or_create_management_secret(config_path: &Path, llm_wrapper_dir: &Path) -> String {
         let secret_file = llm_wrapper_dir.join("cli-proxy-api-secret");
         if config_path.exists() {
             if let Ok(content) = std::fs::read_to_string(config_path) {
@@ -101,7 +98,7 @@ impl CliProxyApiManager {
         secret
     }
 
-    fn write_management_secret_to_config(config_path: &PathBuf, secret: &str) {
+    fn write_management_secret_to_config(config_path: &Path, secret: &str) {
         let Ok(content) = std::fs::read_to_string(config_path) else {
             return;
         };
@@ -128,7 +125,7 @@ impl CliProxyApiManager {
     }
 
     /// 从配置文件加载 API key，不存在则创建
-    fn load_or_create_api_key(config_path: &PathBuf) -> String {
+    fn load_or_create_api_key(config_path: &Path) -> String {
         if config_path.exists() {
             if let Ok(content) = std::fs::read_to_string(config_path) {
                 if let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
@@ -145,7 +142,7 @@ impl CliProxyApiManager {
 
     /// 生成 CLIProxyAPI 配置文件（幂等：如果配置已存在则不覆盖）
     fn generate_config(
-        cli_proxy_api_dir: &PathBuf,
+        cli_proxy_api_dir: &Path,
         endpoint: &str,
         api_key: &str,
         management_secret: &str,
@@ -300,7 +297,7 @@ codex-header-defaults:
         if !auth_dir.is_dir() {
             return false;
         }
-        std::fs::read_dir(auth_dir).map_or(false, |mut entries| {
+        std::fs::read_dir(auth_dir).is_ok_and(|mut entries| {
             entries.any(|entry| match entry {
                 Ok(e) => {
                     let name = e.file_name();
@@ -434,7 +431,7 @@ codex-header-defaults:
         });
     }
 
-    fn find_binary(cli_proxy_api_dir: &PathBuf) -> anyhow::Result<PathBuf> {
+    fn find_binary(cli_proxy_api_dir: &Path) -> anyhow::Result<PathBuf> {
         let candidates: Vec<PathBuf> = [
             // 配置文件同级的 cli-proxy-api 目录
             cli_proxy_api_dir.join("CLIProxyAPI"),
@@ -621,6 +618,7 @@ codex-header-defaults:
 
     /// 完成登录：直接 HTTP GET 回调 URL，让 CLIProxyAPI 接收回调
     pub async fn complete_login(&self, provider: &str, callback_url: &str) -> anyhow::Result<()> {
+        validate_callback_url(provider, callback_url)?;
         let _ = {
             let mut state = self.state.lock().await;
             info!(
@@ -643,9 +641,12 @@ codex-header-defaults:
         let callback_url = callback_url.to_string();
         let provider = provider.to_string();
         tokio::spawn(async move {
-            // 直接 HTTP GET 回调 URL，CLIProxyAPI 在 1455 端口监听回调
-            // 使用 redirect::none() 防止自动跟随 302，我们自己处理
-            let resp = reqwest::get(&callback_url).await;
+            // 直接 HTTP GET 回调 URL，CLIProxyAPI 在本机回调端口监听
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap_or_default();
+            let resp = client.get(&callback_url).send().await;
             match resp {
                 Ok(r) => {
                     info!(
@@ -962,8 +963,8 @@ codex-header-defaults:
     }
 
     async fn restart_inner(
-        cli_proxy_api_dir: &PathBuf,
-        config_path: &PathBuf,
+        cli_proxy_api_dir: &Path,
+        config_path: &Path,
         endpoint: &str,
         old_child: Option<tokio::process::Child>,
     ) -> anyhow::Result<tokio::process::Child> {
@@ -1023,5 +1024,66 @@ codex-header-defaults:
             };
             Err(anyhow::anyhow!("CLIProxyAPI restart: {}", reason))
         }
+    }
+}
+
+/// OAuth 回调端口，依据 CLIProxyAPI 源码默认值：
+/// codex → internal/auth/codex/openai_auth.go (http://localhost:1455/auth/callback)
+/// claude → sdk/auth/claude.go (CallbackPort 54545)
+const CODEX_CALLBACK_PORT: u16 = 1455;
+const CLAUDE_CALLBACK_PORT: u16 = 54545;
+
+/// 校验用户粘贴的回调 URL，防止 SSRF（仅允许本机回调地址）
+fn validate_callback_url(provider: &str, raw: &str) -> anyhow::Result<()> {
+    let url = reqwest::Url::parse(raw).context("回调 URL 格式无效")?;
+    anyhow::ensure!(url.scheme() == "http", "回调 URL 必须是 http 协议");
+    let host_ok = matches!(
+        url.host_str(),
+        Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
+    );
+    anyhow::ensure!(host_ok, "回调 URL 必须指向 localhost");
+
+    let (expected_port, expected_path) = match provider {
+        "codex" => (CODEX_CALLBACK_PORT, "/auth/callback"),
+        "claude" => (CLAUDE_CALLBACK_PORT, "/callback"),
+        other => anyhow::bail!("未知 provider: {}", other),
+    };
+    anyhow::ensure!(
+        url.port_or_known_default() == Some(expected_port),
+        "回调 URL 端口应为 {}",
+        expected_port
+    );
+    anyhow::ensure!(
+        url.path() == expected_path,
+        "回调 URL 路径应为 {}",
+        expected_path
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_callback_url;
+
+    #[test]
+    fn test_valid_callback_urls() {
+        assert!(validate_callback_url(
+            "codex",
+            "http://localhost:1455/auth/callback?code=abc&state=xyz"
+        )
+        .is_ok());
+        assert!(
+            validate_callback_url("claude", "http://127.0.0.1:54545/callback?code=abc").is_ok()
+        );
+    }
+
+    #[test]
+    fn test_rejects_ssrf_targets() {
+        assert!(validate_callback_url("codex", "http://169.254.169.254/latest/meta-data").is_err());
+        assert!(validate_callback_url("codex", "https://evil.com/auth/callback").is_err());
+        assert!(validate_callback_url("codex", "http://localhost:8080/auth/callback").is_err());
+        assert!(validate_callback_url("codex", "http://localhost:1455/other").is_err());
+        assert!(validate_callback_url("unknown", "http://localhost:1455/auth/callback").is_err());
+        assert!(validate_callback_url("codex", "not a url").is_err());
     }
 }

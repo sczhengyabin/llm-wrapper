@@ -143,38 +143,6 @@ fn test_app_config_default() {
 }
 
 #[test]
-fn test_chat_completion_request_serialization() {
-    use std::collections::HashMap;
-
-    let request = ChatCompletionRequest {
-        model: "gpt-4".to_string(),
-        messages: vec![Message {
-            role: "user".to_string(),
-            content: "Hello".to_string(),
-        }],
-        stream: false,
-        temperature: Some(0.7),
-        top_p: None,
-        max_tokens: Some(100),
-        stop: None,
-        frequency_penalty: None,
-        presence_penalty: None,
-        seed: None,
-        extra: HashMap::new(),
-    };
-
-    let serialized = serde_json::to_string_pretty(&request).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-
-    assert_eq!(parsed["model"], "gpt-4");
-    assert_eq!(parsed["messages"][0]["role"], "user");
-    assert_eq!(parsed["messages"][0]["content"], "Hello");
-    assert_eq!(parsed["temperature"], 0.7);
-    assert!(parsed["top_p"].is_null());
-    assert_eq!(parsed["max_tokens"], 100);
-}
-
-#[test]
 fn test_upstream_config_protocol_fields() {
     let upstream = UpstreamConfig::new("test".to_string(), "http://localhost:8080".to_string());
     assert!(upstream.support_chat_completions);
@@ -195,9 +163,9 @@ fn test_old_support_openai_json_migration() {
         }]
     }"#;
     let config: AppConfig = serde_json::from_str(json).expect("JSON parse failed");
-    assert_eq!(config.upstreams[0].support_chat_completions, true);
-    assert_eq!(config.upstreams[0].support_responses, true);
-    assert_eq!(config.upstreams[0].support_anthropic_messages, true);
+    assert!(config.upstreams[0].support_chat_completions);
+    assert!(config.upstreams[0].support_responses);
+    assert!(config.upstreams[0].support_anthropic_messages);
 }
 
 #[test]
@@ -206,5 +174,4 @@ fn test_anthropic_oauth_auth_deserialization() {
 
     assert_eq!(auth, UpstreamAuth::AnthropicOAuth);
     assert!(auth.is_cli_proxy_api());
-    assert!(auth.is_oauth());
 }

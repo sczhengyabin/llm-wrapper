@@ -10,9 +10,78 @@
             padding: 0;
             box-sizing: border-box;
         }
+        :root {
+            color-scheme: light dark;
+            --color-bg: #f4f6f8;
+            --color-surface: var(--color-surface)fff;
+            --color-surface-subtle: #f8fafc;
+            --color-surface-muted: #e9eef5;
+            --color-border: #d9e0ea;
+            --color-border-strong: #b7c2d1;
+            --color-text: #1f2937;
+            --color-text-muted: #667085;
+            --color-primary: #2563eb;
+            --color-primary-hover: #1d4ed8;
+            --color-primary-soft: #e8f0ff;
+            --color-on-accent: #ffffff;
+            --color-success: #16a34a;
+            --color-success-hover: #15803d;
+            --color-success-soft: #e8f7ee;
+            --color-danger: #dc2626;
+            --color-danger-hover: var(--color-danger-hover);
+            --color-danger-soft: #fee2e2;
+            --color-secondary: #64748b;
+            --color-secondary-hover: #475569;
+            --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+            --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-5: 24px;
+            --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.18);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --color-bg: #0f141b;
+                --color-surface: #171d26;
+                --color-surface-subtle: #202836;
+                --color-surface-muted: #263244;
+                --color-border: #344052;
+                --color-border-strong: #475569;
+                --color-text: #eef2f7;
+                --color-text-muted: #a7b0c0;
+                --color-primary: #60a5fa;
+                --color-primary-hover: #3b82f6;
+                --color-primary-soft: #172554;
+                --color-success: #4ade80;
+                --color-success-hover: #22c55e;
+                --color-success-soft: #13341f;
+                --color-danger: #f87171;
+                --color-danger-hover: #ef4444;
+                --color-danger-soft: #3a1717;
+                --color-secondary: #94a3b8;
+                --color-secondary-hover: #cbd5e1;
+                --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+                --shadow-md: 0 18px 44px rgba(0, 0, 0, 0.35);
+                --focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.24);
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                transition-duration: 0.01ms !important;
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                scroll-behavior: auto !important;
+            }
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
+            background: var(--color-bg);
+            color: var(--color-text);
             padding: 20px;
             line-height: 1.6;
         }
@@ -34,57 +103,58 @@
         }
         .version-badge {
             font-size: 12px;
-            background: #e9ecef;
+            background: var(--color-surface-muted);
             padding: 2px 8px;
-            border-radius: 4px;
-            color: #666;
+            border-radius: var(--radius-sm);
+            color: var(--color-text-muted);
             font-weight: normal;
         }
         .lang-switch {
             display: flex;
             gap: 4px;
-            background: #e9ecef;
-            border-radius: 6px;
+            background: var(--color-surface-muted);
+            border-radius: var(--radius-sm);
             padding: 3px;
         }
         .lang-btn {
             background: none;
             border: none;
             padding: 6px 14px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 13px;
-            color: #666;
+            color: var(--color-text-muted);
             transition: all 0.2s;
         }
         .lang-btn.active {
-            background: white;
-            color: #333;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            background: var(--color-surface);
+            color: var(--color-text);
+            box-shadow: var(--shadow-sm);
         }
         h1 {
-            color: #333;
+            color: var(--color-text);
             margin-bottom: 20px;
             text-align: center;
         }
         .section {
-            background: white;
-            border-radius: 8px;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: var(--shadow-sm);
         }
         .section h2 {
-            color: #444;
+            color: var(--color-text);
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--color-border);
         }
         .main-tabs {
             display: flex;
             gap: 4px;
-            background: #e9ecef;
-            border-radius: 8px;
+            background: var(--color-surface-muted);
+            border-radius: var(--radius-md);
             padding: 4px;
             margin-bottom: 20px;
             overflow-x: auto;
@@ -95,21 +165,21 @@
             background: none;
             border: none;
             padding: 10px 14px;
-            border-radius: 6px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 14px;
-            color: #666;
+            color: var(--color-text-muted);
             white-space: nowrap;
             transition: all 0.2s;
         }
         .main-tab:hover {
-            background: rgba(255,255,255,0.65);
-            color: #333;
+            background: var(--color-surface-subtle);
+            color: var(--color-text);
         }
         .main-tab.active {
-            background: white;
-            color: #333;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            background: var(--color-surface);
+            color: var(--color-text);
+            box-shadow: var(--shadow-sm);
             font-weight: 600;
         }
         .tab-panel {
@@ -120,11 +190,11 @@
         }
         .sort-btn {
             background: none;
-            border: 1px solid #ddd;
-            color: #888;
+            border: 1px solid var(--color-border);
+            color: var(--color-text-muted);
             width: 28px;
             height: 28px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 14px;
             display: inline-flex;
@@ -134,9 +204,9 @@
             transition: all 0.15s;
         }
         .sort-btn:hover {
-            background: #e9ecef;
-            color: #333;
-            border-color: #bbb;
+            background: var(--color-surface-muted);
+            color: var(--color-text);
+            border-color: var(--color-border-strong);
         }
         .sort-btn:disabled {
             opacity: 0.3;
@@ -144,38 +214,58 @@
         }
         .sort-btn:disabled:hover {
             background: none;
-            color: #888;
-            border-color: #ddd;
+            color: var(--color-text-muted);
+            border-color: var(--color-border);
         }
         .btn {
-            background: #007bff;
-            color: white;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-2);
+            min-height: 38px;
+            background: var(--color-primary);
+            color: var(--color-on-accent);
             border: none;
             padding: 8px 16px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 14px;
+            font-weight: 500;
+            transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
         }
         .btn:hover {
-            background: #0056b3;
+            background: var(--color-primary-hover);
+            box-shadow: var(--shadow-sm);
+        }
+        .btn:active {
+            transform: translateY(1px);
+        }
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            transform: none;
+        }
+        .btn:focus-visible, .lang-btn:focus-visible, .main-tab:focus-visible, .sort-btn:focus-visible {
+            outline: none;
+            box-shadow: var(--focus-ring);
         }
         .btn-danger {
-            background: #dc3545;
+            background: var(--color-danger);
         }
         .btn-danger:hover {
-            background: #c82333;
+            background: var(--color-danger-hover);
         }
         .btn-success {
-            background: #28a745;
+            background: var(--color-success);
         }
         .btn-success:hover {
-            background: #218838;
+            background: var(--color-success-hover);
         }
         .btn-secondary {
-            background: #6c757d;
+            background: var(--color-secondary);
         }
         .btn-secondary:hover {
-            background: #5a6268;
+            background: var(--color-secondary-hover);
         }
         .form-group {
             margin-bottom: 15px;
@@ -184,24 +274,29 @@
             display: block;
             margin-bottom: 5px;
             font-weight: 500;
-            color: #555;
+            color: var(--color-text-muted);
         }
-        .form-group input, .form-group select {
+        .form-group input, .form-group select, .form-group textarea {
             width: 100%;
+            min-height: 38px;
             padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            background: var(--color-surface);
+            color: var(--color-text);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
             font-size: 14px;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
         }
         .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
             outline: none;
-            border-color: #007bff;
+            border-color: var(--color-primary);
+            box-shadow: var(--focus-ring);
         }
         .form-group .form-hint {
             display: block;
             margin-top: 4px;
             font-size: 12px;
-            color: #888;
+            color: var(--color-text-muted);
         }
         .form-group .input-group {
             display: flex;
@@ -215,9 +310,9 @@
         }
         .item-card {
             position: relative;
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 4px;
+            background: var(--color-surface-subtle);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
             padding: 15px;
             margin-bottom: 10px;
             display: flex;
@@ -235,40 +330,40 @@
         }
         .item-title {
             font-weight: 600;
-            color: #333;
+            color: var(--color-text);
             margin-bottom: 5px;
         }
         .item-detail {
             font-size: 13px;
-            color: #666;
+            color: var(--color-text-muted);
         }
         .model-tag {
             display: inline-block;
             padding: 6px 12px;
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             font-size: 12px;
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
             cursor: default;
             transition: all .15s;
         }
         .model-tag.enabled {
-            background: #e9f6ec;
-            color: #1e7e34;
-            border: 1px solid #9bd3a6;
+            background: var(--color-success-soft);
+            color: var(--color-success-hover);
+            border: 1px solid var(--color-success);
             cursor: pointer;
         }
-        .model-tag.enabled:hover { background: #ddf0e2; }
+        .model-tag.enabled:hover { background: var(--color-success-soft); }
         .model-tag.available {
-            background: #f6f7f9;
-            color: #5a6069;
-            border: 1px solid #e2e4e9;
+            background: var(--color-surface-subtle);
+            color: var(--color-text-muted);
+            border: 1px solid var(--color-border);
             cursor: pointer;
         }
-        .model-tag.available:hover { background: #eef0f3; border-color: #d2d5db; }
+        .model-tag.available:hover { background: var(--color-surface-muted); border-color: var(--color-border-strong); }
         .model-tag.conflict {
-            background: #fef2f2;
-            color: #b91c1c;
-            border: 1px dashed #fca5a5;
+            background: var(--color-danger-soft);
+            color: var(--color-danger-hover);
+            border: 1px dashed var(--color-danger);
             cursor: not-allowed;
         }
         .proto-tag {
@@ -281,23 +376,23 @@
             transition: all .15s;
         }
         .proto-tag.enabled {
-            background: #fff;
-            color: #1f6feb;
-            border: 1px solid #9ec5f5;
+            background: var(--color-surface);
+            color: var(--color-primary);
+            border: 1px solid var(--color-primary);
             cursor: pointer;
         }
-        .proto-tag.enabled:hover { background: #f0f6ff; }
+        .proto-tag.enabled:hover { background: var(--color-primary-soft); }
         .proto-tag.disabled {
-            background: #fafbfc;
-            color: #aab0b8;
-            border: 1px dashed #dcdfe4;
+            background: var(--color-surface-subtle);
+            color: var(--color-text-muted);
+            border: 1px dashed var(--color-border);
             cursor: pointer;
         }
-        .proto-tag.disabled:hover { border-color: #c4c8cf; }
+        .proto-tag.disabled:hover { border-color: var(--color-border-strong); }
         .proto-tag.fixed {
             cursor: default;
         }
-        .proto-tag.fixed:hover { background: #fff; }
+        .proto-tag.fixed:hover { background: var(--color-surface); }
         .source-tag {
             display: inline-block;
             padding: 2px 6px;
@@ -306,12 +401,12 @@
             margin-left: 6px;
         }
         .source-tag.auto {
-            background: #d1ecf1;
-            color: #0c5460;
+            background: var(--color-primary-soft);
+            color: var(--color-primary-hover);
         }
         .source-tag.manual {
-            background: #e2e3e5;
-            color: #383d41;
+            background: var(--color-surface-muted);
+            color: var(--color-text);
         }
         .item-actions {
             display: flex;
@@ -341,7 +436,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: #ccc;
+            background-color: var(--color-border-strong);
             transition: .3s;
             border-radius: 26px;
         }
@@ -352,12 +447,12 @@
             width: 20px;
             left: 3px;
             bottom: 3px;
-            background-color: white;
+            background-color: var(--color-on-accent);
             transition: .3s;
             border-radius: 50%;
         }
         input:checked + .slider {
-            background-color: #28a745;
+            background-color: var(--color-success);
         }
         input:checked + .slider:before {
             transform: translateX(24px);
@@ -373,7 +468,7 @@
             gap: 16px;
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--color-border);
         }
         .section-header h2 {
             margin-bottom: 0;
@@ -396,8 +491,8 @@
             display: flex;
         }
         .modal-content {
-            background: white;
-            border-radius: 8px;
+            background: var(--color-surface);
+            border-radius: var(--radius-md);
             padding: 20px;
             width: 90%;
             max-width: 800px;
@@ -411,14 +506,14 @@
             margin-bottom: 20px;
         }
         .modal-header h3 {
-            color: #333;
+            color: var(--color-text);
         }
         .close-btn {
             background: none;
             border: none;
             font-size: 24px;
             cursor: pointer;
-            color: #666;
+            color: var(--color-text-muted);
         }
         .param-row {
             display: flex;
@@ -440,8 +535,8 @@
             flex: 2;
             min-width: 200px;
             padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
             font-size: 14px;
             box-sizing: border-box;
         }
@@ -456,30 +551,30 @@
         }
         .param-row .remove-param {
             flex: 0 0 auto;
-            background: #dc3545;
-            color: white;
+            background: var(--color-danger);
+            color: var(--color-on-accent);
             border: none;
             padding: 8px 16px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 14px;
             white-space: nowrap;
         }
         .param-row .remove-param:hover {
-            background: #c82333;
+            background: var(--color-danger-hover);
         }
         .btn-add {
-            background: #28a745;
-            color: white;
+            background: var(--color-success);
+            color: var(--color-on-accent);
             border: none;
             padding: 8px 16px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 14px;
             white-space: nowrap;
         }
         .btn-add:hover {
-            background: #218838;
+            background: var(--color-success-hover);
         }
         .param-tags {
             display: flex;
@@ -487,28 +582,28 @@
             gap: 6px;
             margin-top: 8px;
             padding-top: 8px;
-            border-top: 1px solid #eee;
+            border-top: 1px solid var(--color-border);
         }
         .param-tag {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            background: #f5f5f5;
+            background: var(--color-bg);
             padding: 4px 10px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             font-size: 12px;
-            color: #555;
+            color: var(--color-text-muted);
         }
         .param-tag em {
-            color: #333;
+            color: var(--color-text);
             font-style: normal;
         }
         .param-mode {
-            background: #e0e0e0;
+            background: var(--color-surface-muted);
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 10px;
-            color: #666;
+            color: var(--color-text-muted);
         }
         .save-btn {
             width: 100%;
@@ -520,30 +615,33 @@
             min-width: 300px;
             text-align: center;
             padding: 15px 20px;
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             z-index: 9999;
         }
         .status.success {
-            background: #d4edda;
-            color: #155724;
+            background: var(--color-success-soft);
+            color: var(--color-success-hover);
+            border: 1px solid color-mix(in srgb, var(--color-success) 35%, transparent);
         }
         .status.error {
-            background: #f8d7da;
-            color: #721c24;
+            background: var(--color-danger-soft);
+            color: var(--color-danger-hover);
+            border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
         }
-        .status.loading {
-            background: #d1ecf1;
-            color: #0c5460;
+        .status.loading, .status.info {
+            background: var(--color-primary-soft);
+            color: var(--color-primary-hover);
+            border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
         }
         .empty-state {
             text-align: center;
-            color: #999;
+            color: var(--color-text-muted);
             padding: 20px;
         }
         .loading {
             text-align: center;
-            color: #666;
+            color: var(--color-text-muted);
             padding: 10px;
         }
         .debug-toggle {
@@ -553,17 +651,17 @@
             z-index: 9998;
         }
         .debug-btn {
-            background: #6c757d;
-            color: white;
+            background: var(--color-secondary);
+            color: var(--color-on-accent);
             border: none;
             padding: 12px 20px;
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             cursor: pointer;
             font-size: 14px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
         .debug-btn:hover {
-            background: #5a6268;
+            background: var(--color-secondary-hover);
         }
         .debug-panel {
             display: none;
@@ -574,7 +672,7 @@
             max-width: calc(100vw - 40px);
             max-height: 70vh;
             background: #1e1e1e;
-            border-radius: 12px;
+            border-radius: var(--radius-lg);
             box-shadow: 0 8px 24px rgba(0,0,0,0.4);
             z-index: 9999;
             overflow: hidden;
@@ -593,7 +691,7 @@
         }
         .debug-header h4 {
             margin: 0;
-            color: #fff;
+            color: var(--color-on-accent);
             font-size: 14px;
         }
         .debug-close {
@@ -606,7 +704,7 @@
             line-height: 1;
         }
         .debug-close:hover {
-            color: #fff;
+            color: var(--color-on-accent);
         }
         .debug-tabs {
             display: flex;
@@ -625,12 +723,12 @@
             transition: all 0.2s;
         }
         .debug-tab:hover {
-            color: #fff;
+            color: var(--color-on-accent);
             background: #2d2d2d;
         }
         .debug-tab.active {
-            color: #4fc3f7;
-            border-bottom-color: #4fc3f7;
+            color: var(--color-primary);
+            border-bottom-color: var(--color-primary);
         }
         .debug-content {
             flex: 1;
@@ -645,13 +743,13 @@
         }
         .debug-section h5 {
             margin: 0 0 10px 0;
-            color: #888;
+            color: var(--color-text-muted);
             font-size: 12px;
             text-transform: uppercase;
         }
         .debug-json {
             background: #121212;
-            border-radius: 6px;
+            border-radius: var(--radius-sm);
             padding: 12px;
             overflow-x: auto;
             font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
@@ -668,26 +766,26 @@
             color: #aaa;
             border: none;
             padding: 6px 12px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 12px;
         }
         .debug-clear:hover {
             background: #4d4d4d;
-            color: #fff;
+            color: var(--color-on-accent);
         }
         .debug-copy-btn {
             background: #3d3d3d;
             color: #aaa;
             border: none;
             padding: 6px 12px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             font-size: 12px;
         }
         .debug-copy-btn:hover {
             background: #4d4d4d;
-            color: #fff;
+            color: var(--color-on-accent);
         }
         .refresh-btn {
             min-width: 80px;
@@ -702,50 +800,50 @@
         .models-table td {
             padding: 12px 16px;
             text-align: left;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--color-border);
         }
         .models-table th {
-            background: #f8f9fa;
+            background: var(--color-surface-subtle);
             font-weight: 600;
-            color: #333;
-            border-bottom: 2px solid #dee2e6;
+            color: var(--color-text);
+            border-bottom: 2px solid var(--color-border);
         }
         .models-table tr:hover {
-            background: #f8f9fa;
+            background: var(--color-surface-subtle);
         }
         .models-table .alias-name {
             font-family: monospace;
-            color: #004085;
-            background: #e7f3ff;
+            color: var(--color-primary-hover);
+            background: var(--color-primary-soft);
             padding: 4px 8px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             font-size: 13px;
         }
         .models-table .upstream-name {
             font-family: monospace;
-            color: #155724;
-            background: #d4edda;
+            color: var(--color-success-hover);
+            background: var(--color-success-soft);
             padding: 4px 8px;
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             font-size: 13px;
         }
         .models-table .source-tag {
             display: inline-block;
             padding: 2px 8px;
-            border-radius: 12px;
+            border-radius: var(--radius-lg);
             font-size: 11px;
             font-weight: 500;
         }
         .models-table .source-tag.auto {
-            background: #d1ecf1;
-            color: #0c5460;
+            background: var(--color-primary-soft);
+            color: var(--color-primary-hover);
         }
         .models-table .source-tag.manual {
-            background: #e2e3e5;
-            color: #383d41;
+            background: var(--color-surface-muted);
+            color: var(--color-text);
         }
         .models-table .target-model {
-            color: #666;
+            color: var(--color-text-muted);
             font-size: 12px;
             max-width: 300px;
             overflow: hidden;
@@ -753,9 +851,9 @@
             white-space: nowrap;
         }
         .upstream-group-header {
-            background: #f0f0f0;
+            background: var(--color-surface-subtle);
             font-weight: 600;
-            color: #333;
+            color: var(--color-text);
         }
         .auth-badge {
             display: inline-block;
@@ -766,24 +864,24 @@
             white-space: nowrap;
         }
         .auth-badge.api-key {
-            background: #e7f5ec;
-            color: #1e7e34;
+            background: var(--color-success-soft);
+            color: var(--color-success-hover);
         }
         .auth-badge.oauth {
-            background: #e7f0fd;
-            color: #1f6feb;
+            background: var(--color-primary-soft);
+            color: var(--color-primary);
         }
         .auth-badge.cli-claude {
-            background: #fdf0e3;
-            color: #b9710c;
+            background: var(--color-primary-soft);
+            color: var(--color-primary-hover);
         }
         .auth-badge.cli-codex {
-            background: #e7f0fd;
-            color: #1f6feb;
+            background: var(--color-primary-soft);
+            color: var(--color-primary);
         }
         .auth-badge.CLIProxyAPI {
-            background: #eef0f3;
-            color: #5a6069;
+            background: var(--color-surface-muted);
+            color: var(--color-text-muted);
         }
         /* ===== Upstream card (redesigned) ===== */
         .upstream-card {
@@ -791,12 +889,12 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            background: #fff;
-            border: 1px solid #ececef;
-            border-radius: 14px;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
             padding: 18px 16px 18px 14px;
             margin-bottom: 14px;
-            box-shadow: 0 1px 3px rgba(16,24,40,0.05);
+            box-shadow: var(--shadow-sm);
         }
         .uc-body { flex: 1; min-width: 0; }
         .uc-top {
@@ -822,25 +920,25 @@
         .uc-name {
             font-size: 19px;
             font-weight: 700;
-            color: #1f2329;
+            color: var(--color-text);
             line-height: 1.2;
         }
         .uc-drag {
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #c2c6cd;
+            color: var(--color-border-strong);
             cursor: grab;
             padding: 2px;
-            border-radius: 6px;
+            border-radius: var(--radius-sm);
             flex-shrink: 0;
             transition: color .15s, background .15s;
         }
-        .uc-drag:hover { color: #8a909a; background: #f2f3f5; }
+        .uc-drag:hover { color: var(--color-text-muted); background: var(--color-surface-muted); }
         .uc-drag:active { cursor: grabbing; }
         .upstream-card.dragging { opacity: .45; }
-        .upstream-card.drop-before { box-shadow: 0 1px 3px rgba(16,24,40,.05), inset 0 3px 0 -1px #4a9eea; }
-        .upstream-card.drop-after { box-shadow: 0 1px 3px rgba(16,24,40,.05), inset 0 -3px 0 -1px #4a9eea; }
+        .upstream-card.drop-before { box-shadow: 0 1px 3px rgba(16,24,40,.05), inset 0 3px 0 -1px var(--color-primary); }
+        .upstream-card.drop-after { box-shadow: 0 1px 3px rgba(16,24,40,.05), inset 0 -3px 0 -1px var(--color-primary); }
         .uc-meta {
             display: flex;
             align-items: center;
@@ -848,12 +946,12 @@
             gap: 6px 22px;
             margin-top: 13px;
             font-size: 13px;
-            color: #5a6069;
+            color: var(--color-text-muted);
         }
         .uc-meta-item { display: inline-flex; align-items: center; gap: 6px; }
-        .uc-meta-item svg { color: #9aa0a8; flex-shrink: 0; }
-        .uc-meta-muted { color: #aab0b8; }
-        .uc-meta-warn { color: #d99100; }
+        .uc-meta-item svg { color: var(--color-text-muted); flex-shrink: 0; }
+        .uc-meta-muted { color: var(--color-text-muted); }
+        .uc-meta-warn { color: var(--color-danger-hover); }
         .uc-protocols {
             display: flex;
             gap: 8px;
@@ -863,39 +961,39 @@
         }
         .uc-actions { display: flex; gap: 9px; }
         .uc-btn {
-            background: #fff;
-            border: 1px solid #e2e4e9;
-            color: #2b2f36;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            color: var(--color-text);
             padding: 9px 20px;
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             font-size: 14px;
             cursor: pointer;
             transition: all .15s;
             white-space: nowrap;
         }
-        .uc-btn:hover { background: #f6f7f9; border-color: #d2d5db; }
+        .uc-btn:hover { background: var(--color-surface-subtle); border-color: var(--color-border-strong); }
         .uc-btn:disabled { opacity: 0.55; cursor: wait; }
-        .uc-btn.danger:hover { background: #fef2f2; border-color: #f3b4b4; color: #c0392b; }
-        .uc-btn.primary { color: #1e7e34; border-color: #cfe8d4; }
-        .uc-btn.primary:hover { background: #f0faf2; border-color: #9bd3a6; }
+        .uc-btn.danger:hover { background: var(--color-danger-soft); border-color: var(--color-danger); color: var(--color-danger-hover); }
+        .uc-btn.primary { color: var(--color-success-hover); border-color: var(--color-success); }
+        .uc-btn.primary:hover { background: var(--color-success-soft); border-color: var(--color-success); }
         .load-notice {
-            background: #eef7ff;
-            border: 1px solid #cfe8ff;
-            color: #215a8a;
-            border-radius: 10px;
+            background: var(--color-primary-soft);
+            border: 1px solid var(--color-primary);
+            color: var(--color-primary-hover);
+            border-radius: var(--radius-md);
             padding: 10px 12px;
             margin: 12px 0;
             font-size: 13px;
         }
-        .inline-loading { color: #6b7178; font-size: 13px; }
-        .uc-divider { height: 1px; background: #f0f1f3; margin-top: 16px; }
+        .inline-loading { color: var(--color-text-muted); font-size: 13px; }
+        .uc-divider { height: 1px; background: var(--color-border); margin-top: 16px; }
         .uc-models {
             display: flex;
             align-items: center;
             gap: 14px;
             margin-top: 14px;
         }
-        .uc-models-label { font-size: 13px; color: #8a909a; flex-shrink: 0; }
+        .uc-models-label { font-size: 13px; color: var(--color-text-muted); flex-shrink: 0; }
         .uc-models-grid {
             display: flex;
             flex-wrap: wrap;
@@ -908,19 +1006,19 @@
             align-items: center;
             gap: 4px;
             padding: 7px 15px;
-            border: 1px solid #e2e4e9;
-            border-radius: 10px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
             font-size: 13px;
-            color: #5a6069;
+            color: var(--color-text-muted);
             cursor: pointer;
             flex-shrink: 0;
             transition: all .15s;
         }
-        .uc-models-toggle:hover { background: #f6f7f9; border-color: #d2d5db; }
+        .uc-models-toggle:hover { background: var(--color-surface-subtle); border-color: var(--color-border-strong); }
         .uc-models-toggle svg { transition: transform .2s; }
         .uc-models-toggle.expanded svg { transform: rotate(180deg); }
         .uc-quota { display: flex; flex-direction: column; gap: 8px; }
-        .uc-quota-error { color: #e5484d; font-size: 13px; white-space: nowrap; cursor: help; }
+        .uc-quota-error { color: var(--color-danger); font-size: 13px; white-space: nowrap; cursor: help; }
         .quota-row {
             display: grid;
             grid-template-columns: 48px 120px 40px auto;
@@ -928,29 +1026,29 @@
             gap: 10px;
             white-space: nowrap;
             font-size: 13px;
-            color: #6b7178;
+            color: var(--color-text-muted);
         }
-        .quota-label { text-align: left; color: #8a909a; }
-        .quota-value { text-align: right; font-variant-numeric: tabular-nums; color: #2b2f36; font-weight: 600; }
-        .quota-reset { color: #aab0b8; font-size: 12px; }
+        .quota-label { text-align: left; color: var(--color-text-muted); }
+        .quota-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text); font-weight: 600; }
+        .quota-reset { color: var(--color-text-muted); font-size: 12px; }
         .quota-bar {
             width: 120px;
             height: 7px;
-            background: #edeef1;
+            background: var(--color-surface-muted);
             border-radius: 999px;
             overflow: hidden;
         }
         .quota-bar-fill {
             display: block;
             height: 100%;
-            background: #2da44e;
+            background: var(--color-success);
             border-radius: 999px;
         }
         .quota-bar-fill.warn {
-            background: #f0a020;
+            background: var(--color-danger-hover);
         }
         .quota-bar-fill.danger {
-            background: #e5484d;
+            background: var(--color-danger);
         }
         .oauth-login-modal-body {
             text-align: center;
@@ -961,17 +1059,17 @@
             font-weight: 700;
             font-family: monospace;
             letter-spacing: 4px;
-            color: #007bff;
+            color: var(--color-primary);
             margin: 15px 0;
             user-select: all;
         }
         .oauth-login-modal-body .verify-url {
             font-size: 14px;
-            color: #666;
+            color: var(--color-text-muted);
             margin-bottom: 15px;
         }
         .oauth-login-modal-body .verify-url a {
-            color: #007bff;
+            color: var(--color-primary);
             text-decoration: none;
         }
         .oauth-login-modal-body .verify-url a:hover {
@@ -981,7 +1079,7 @@
             text-align: left;
             max-width: 400px;
             margin: 0 auto 20px;
-            color: #555;
+            color: var(--color-text-muted);
             font-size: 14px;
             line-height: 1.8;
         }
@@ -989,7 +1087,6 @@
             display: flex;
             gap: 10px;
             justify-content: center;
-        }
         }
     </style>
 </head>
@@ -1047,7 +1144,7 @@
                 <h2 data-i18n="section_models">聚合模型列表</h2>
             </div>
             <div class="section-body">
-                <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="models_desc">
+                <p style="color: var(--color-text-muted); font-size: 13px; margin-bottom: 15px;" data-i18n="models_desc">
                     所有可通过 <code>/v1/models</code> API 获取的模型别名（按上游分组）
                 </p>
                 <div id="aggregatedModelsTable">
@@ -1062,7 +1159,7 @@
                 <h2 data-i18n="section_access_control">访问控制</h2>
             </div>
             <div class="section-body">
-                <p style="color: #666; font-size: 13px; margin-bottom: 15px;" data-i18n="access_control_desc">
+                <p style="color: var(--color-text-muted); font-size: 13px; margin-bottom: 15px;" data-i18n="access_control_desc">
                     留空则不保护 <code>/v1/*</code> API；设置后客户端需使用 <code>Authorization: Bearer &lt;key&gt;</code> 或 <code>x-api-key</code>
                 </p>
                 <div class="form-group">
@@ -1133,12 +1230,12 @@
         <div class="debug-content">
             <div id="debugClient" class="debug-section active">
                 <h5 data-i18n="debug_client_label">客户端发送到 Wrapper</h5>
-                <div id="debugClientMeta" style="margin-bottom: 8px; font-size: 12px; color: #888;"></div>
+                <div id="debugClientMeta" style="margin-bottom: 8px; font-size: 12px; color: var(--color-text-muted);"></div>
                 <div class="debug-json" id="debugClientJson">{等待请求...}</div>
             </div>
             <div id="debugUpstream" class="debug-section">
                 <h5 data-i18n="debug_upstream_label">Wrapper 发送到上游</h5>
-                <div id="debugUpstreamMeta" style="margin-bottom: 8px; font-size: 12px; color: #888;"></div>
+                <div id="debugUpstreamMeta" style="margin-bottom: 8px; font-size: 12px; color: var(--color-text-muted);"></div>
                 <div class="debug-json" id="debugUpstreamJson">{等待请求...}</div>
             </div>
             <div id="debugResponse" class="debug-section">
@@ -1147,7 +1244,7 @@
             </div>
         </div>
         <div style="padding: 10px; border-top: 1px solid #3d3d3d; display: flex; justify-content: space-between; align-items: center;">
-            <label style="color: #666; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+            <label style="color: var(--color-text-muted); font-size: 12px; display: flex; align-items: center; gap: 6px;">
                 <input type="checkbox" id="streamMonitorToggle" onchange="toggleStreamMonitor()">
                 <span data-i18n="debug_stream_monitor">监听流式响应</span>
             </label>
@@ -1189,14 +1286,14 @@
                     </div>
                 </div>
                 <div id="CLIProxyAPIFields" style="display: none;">
-                    <div style="padding: 10px; background: #f0f7ff; border-radius: 4px; font-size: 13px; color: #555;">
+                    <div style="padding: 10px; background: var(--color-primary-soft); border-radius: var(--radius-sm); font-size: 13px; color: var(--color-text-muted);">
                         <div data-i18n="CLIProxyAPI_info">CLIProxyAPI 管理的上游：OAuth 登录和协议转换由 CLIProxyAPI 处理。基础 URL 仅供参考。</div>
                     </div>
                 </div>
                 <div id="commonFields">
                     <div class="form-group" id="protocolSupportGroup">
                         <label data-i18n="protocols_label">协议支持</label>
-                        <div style="padding: 10px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px;">
+                        <div style="padding: 10px; background: var(--color-surface-subtle); border: 1px solid var(--color-surface-muted); border-radius: var(--radius-md);">
                             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
                                 <span data-i18n="protocol_chat_completions">Chat Completions</span>
                                 <label class="switch">
@@ -1220,7 +1317,7 @@
                             </div>
                             <div id="anthropicBaseUrlContainer" style="display: none;">
                                 <input type="text" id="upstreamAnthropicBaseUrl" data-i18n-placeholder="anthropic_baseurl_placeholder" placeholder="留空则使用上方的 base URL">
-                                <div style="font-size: 12px; color: #999; margin-top: 4px;" data-i18n="anthropic_baseurl_hint">Anthropic messages 协议的独立 base URL，留空则与 OpenAI 一致</div>
+                                <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px;" data-i18n="anthropic_baseurl_hint">Anthropic messages 协议的独立 base URL，留空则与 OpenAI 一致</div>
                             </div>
                         </div>
                     </div>
@@ -1285,10 +1382,25 @@
                 </div>
                 <div class="form-group">
                     <label data-i18n="alias_extrabody_label">extra_body (JSON)</label>
-                    <textarea id="aliasExtraBody" placeholder='{"chat_template_kwargs": {"enable_thinking": false}}' rows="4" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px;"></textarea>
+                    <textarea id="aliasExtraBody" placeholder='{"chat_template_kwargs": {"enable_thinking": false}}' rows="4" style="width: 100%; padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: monospace; font-size: 12px;"></textarea>
                 </div>
                 <button type="submit" class="btn btn-success save-btn" data-i18n="btn_save">保存</button>
             </form>
+        </div>
+    </div>
+
+    <!-- 通用确认对话框 -->
+    <div class="modal" id="confirmModal">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header">
+                <h3 id="confirmModalTitle">确认</h3>
+                <button class="close-btn" onclick="resolveConfirmDialog(false)">&times;</button>
+            </div>
+            <p id="confirmModalMessage" style="margin: 16px 0; line-height: 1.6;"></p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="confirmModalCancel" onclick="resolveConfirmDialog(false)">取消</button>
+                <button type="button" class="btn btn-danger" id="confirmModalOk" onclick="resolveConfirmDialog(true)">确定</button>
+            </div>
         </div>
     </div>
 
@@ -1341,7 +1453,7 @@
                 upstream_name_placeholder: "上游名称（用作唯一标识）",
                 upstream_baseurl_label: "基础 URL *",
                 upstream_apikey_label: "API 密钥",
-                upstream_apikey_placeholder: "留空表示不需要密钥",
+                upstream_apikey_placeholder: "留空表示不需要密钥；编辑时留空或保留掩码值则不修改原 Key",
                 upstream_protocol_label: "协议支持", // deprecated
                 anthropic_label: "Anthropic 协议", // deprecated
                 anthropic_support: "支持", // deprecated
@@ -1390,6 +1502,10 @@
                 debug_url: "URL: ",
                 confirm_delete_upstream: "确定要删除这个上游吗？",
                 confirm_delete_alias: "确定要删除这个别名吗？",
+                confirm_delete_client_key: "确定要删除这个客户端 API Key 吗？使用该 Key 的客户端将无法访问。",
+                confirm_title: "确认操作",
+                btn_cancel: "取消",
+                btn_confirm: "确定",
                 status_config_saved: "配置已保存",
                 status_save_failed: "保存失败",
                 status_load_failed: "加载配置失败：",
@@ -1451,6 +1567,9 @@
                 btn_add_key: "添加",
                 btn_show_key: "显示",
                 btn_hide_key: "隐藏",
+                btn_copy_key: "复制",
+                status_key_copied: "API Key 已复制到剪贴板",
+                status_copy_key_failed: "复制 API Key 失败",
                 client_api_key_hint: "至少保留一个 key 时客户端请求 /v1/* 需要携带 key；删除全部 key 并保存即可关闭鉴权。",
                 btn_save_access_control: "保存访问控制配置",
                 admin_login_title: "管理员登录",
@@ -1468,6 +1587,18 @@
                 status_access_control_saved: "访问控制配置已保存",
                 status_access_control_failed: "保存访问控制配置失败：",
                 status_generated_key: "已生成随机 API Key",
+                status_login_failed: "登录失败",
+                status_logout_success: "已登出",
+                status_logout_failed: "登出失败：",
+                status_login_request_failed: "登录请求失败：",
+                status_oauth_login_success: "OAuth 登录成功！",
+                status_oauth_complete_browser: "请在浏览器中完成授权登录。",
+                oauth_callback_hint: "授权完成后，浏览器会跳转到一个类似 http://127.0.0.1:xxxx/callback?code=... 的地址（页面可能显示 404，这是正常的）。",
+                oauth_callback_paste_hint: "请将浏览器地址栏中的完整 URL 粘贴到下方：",
+                status_callback_url_required: "请粘贴回调 URL",
+                status_callback_submitted: "回调已提交，正在完成登录...",
+                status_callback_submit_failed: "提交失败：",
+                status_oauth_test_after_login: "OAuth 上游请先保存配置并完成登录后再测试",
 
             },
             en: {
@@ -1515,7 +1646,7 @@
                 upstream_name_placeholder: "Upstream name (unique identifier)",
                 upstream_baseurl_label: "Base URL *",
                 upstream_apikey_label: "API Key",
-                upstream_apikey_placeholder: "Leave empty if no key needed",
+                upstream_apikey_placeholder: "Leave empty if no key needed; when editing, leave empty or keep masked value to preserve the original key",
                 upstream_protocol_label: "Protocol Support", // deprecated
                 anthropic_label: "Anthropic Protocol", // deprecated
                 anthropic_support: "Support", // deprecated
@@ -1564,6 +1695,10 @@
                 debug_url: "URL: ",
                 confirm_delete_upstream: "Are you sure to delete this upstream?",
                 confirm_delete_alias: "Are you sure to delete this alias?",
+                confirm_delete_client_key: "Delete this client API key? Clients using it will lose access.",
+                confirm_title: "Confirm",
+                btn_cancel: "Cancel",
+                btn_confirm: "OK",
                 status_config_saved: "Config saved",
                 status_save_failed: "Save failed",
                 status_load_failed: "Failed to load config: ",
@@ -1625,6 +1760,9 @@
                 btn_add_key: "Add",
                 btn_show_key: "Show",
                 btn_hide_key: "Hide",
+                btn_copy_key: "Copy",
+                status_key_copied: "API key copied to clipboard",
+                status_copy_key_failed: "Failed to copy API key",
                 client_api_key_hint: "When at least one key exists, /v1/* requests must include a key; delete all keys and save to disable.",
                 btn_save_access_control: "Save Access Control",
                 admin_login_title: "Admin Login",
@@ -1642,6 +1780,18 @@
                 status_access_control_saved: "Access control saved",
                 status_access_control_failed: "Failed to save access control: ",
                 status_generated_key: "Generated random API Key",
+                status_login_failed: "Login failed",
+                status_logout_success: "Logged out",
+                status_logout_failed: "Logout failed: ",
+                status_login_request_failed: "Login request failed: ",
+                status_oauth_login_success: "OAuth login successful!",
+                status_oauth_complete_browser: "Complete authorization in your browser.",
+                oauth_callback_hint: "After authorization, the browser will redirect to an address like http://127.0.0.1:xxxx/callback?code=... (a 404 page is normal).",
+                oauth_callback_paste_hint: "Paste the full URL from the browser address bar below:",
+                status_callback_url_required: "Paste the callback URL",
+                status_callback_submitted: "Callback submitted, completing login...",
+                status_callback_submit_failed: "Submit failed: ",
+                status_oauth_test_after_login: "Save the OAuth upstream and finish login before testing",
             }
         };
 
@@ -1877,8 +2027,6 @@
             showLoginStatus(t('status_admin_login_required'), 'success');
         }
 
-        const visibleClientApiKeyIndexes = new Set();
-
         function getClientApiKeys() {
             const rawKeys = [...(config.client_api_keys || [])];
             if (config.client_api_key) rawKeys.push({ name: '', key: config.client_api_key });
@@ -1907,8 +2055,7 @@
             }
 
             list.innerHTML = keys.map((entry, index) => {
-                const visible = visibleClientApiKeyIndexes.has(index);
-                const shown = visible ? entry.key : maskApiKey(entry.key);
+                const shown = isMaskedValue(entry.key) ? entry.key : maskApiKey(entry.key);
                 const title = entry.name || `API Key ${index + 1}`;
                 return `
                     <div class="item-card">
@@ -1917,7 +2064,7 @@
                             <div class="item-detail" style="font-family: monospace; word-break: break-all;">${escapeHtml(shown)}</div>
                         </div>
                         <div class="item-actions">
-                            <button class="btn btn-secondary" onclick="toggleClientApiKeyVisibility(${index})">${visible ? t('btn_hide_key') : t('btn_show_key')}</button>
+                            <button class="btn btn-secondary" onclick="copyClientApiKey(${index})">${t('btn_copy_key')}</button>
                             <button class="btn btn-danger" onclick="deleteClientApiKey(${index})">${t('btn_delete')}</button>
                         </div>
                     </div>
@@ -1930,13 +2077,29 @@
             return key.slice(0, 8) + '••••••' + key.slice(-6);
         }
 
-        function toggleClientApiKeyVisibility(index) {
-            if (visibleClientApiKeyIndexes.has(index)) {
-                visibleClientApiKeyIndexes.delete(index);
-            } else {
-                visibleClientApiKeyIndexes.add(index);
+        function isMaskedValue(value) {
+            return typeof value === 'string' && value.includes('•');
+        }
+
+        async function copyClientApiKey(index) {
+            const keys = getClientApiKeys();
+            const entry = keys[index];
+            if (!entry) return;
+            let plain = entry.key;
+            // 后端返回的是掩码值，需通过 reveal 端点取回明文
+            if (isMaskedValue(plain)) {
+                try {
+                    const resp = await fetch(`/api/client-api-keys/${index}/reveal`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    plain = data.key;
+                } catch (e) {
+                    showStatus(t('status_copy_key_failed'), 'error');
+                    return;
+                }
             }
-            renderClientApiKeys();
+            const ok = await copyText(plain);
+            showStatus(ok ? t('status_key_copied') : t('status_copy_key_failed'), ok ? 'success' : 'error');
         }
 
         function generateClientApiKey() {
@@ -1962,12 +2125,12 @@
             renderClientApiKeys();
         }
 
-        function deleteClientApiKey(index) {
+        async function deleteClientApiKey(index) {
+            if (!await confirmDialog(t('confirm_delete_client_key'))) return;
             const keys = getClientApiKeys();
             keys.splice(index, 1);
             config.client_api_keys = keys;
             delete config.client_api_key;
-            visibleClientApiKeyIndexes.delete(index);
             renderClientApiKeys();
         }
 
@@ -2082,13 +2245,15 @@
             document.getElementById('debug' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
         }
 
-        function copyCurrentDebugTab(btn) {
-            const activeSection = document.querySelector('.debug-section.active');
-            if (!activeSection) return;
-            const el = activeSection.querySelector('.debug-json');
-            if (!el) return;
-            const text = el.textContent;
-            if (!text || text.startsWith('{等待') || text.startsWith('{Waiting')) return;
+        async function copyText(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch (e) {
+                    console.warn('navigator.clipboard failed, falling back:', e);
+                }
+            }
             try {
                 const ta = document.createElement('textarea');
                 ta.value = text;
@@ -2096,13 +2261,26 @@
                 ta.style.opacity = '0';
                 document.body.appendChild(ta);
                 ta.select();
-                document.execCommand('copy');
+                const ok = document.execCommand('copy');
                 document.body.removeChild(ta);
+                return ok;
+            } catch (e) {
+                console.error('Copy failed:', e);
+                return false;
+            }
+        }
+
+        async function copyCurrentDebugTab(btn) {
+            const activeSection = document.querySelector('.debug-section.active');
+            if (!activeSection) return;
+            const el = activeSection.querySelector('.debug-json');
+            if (!el) return;
+            const text = el.textContent;
+            if (!text || text.startsWith('{等待') || text.startsWith('{Waiting')) return;
+            if (await copyText(text)) {
                 const orig = btn.textContent;
                 btn.textContent = t('debug_copied');
                 setTimeout(() => { btn.textContent = orig; }, 1500);
-            } catch(e) {
-                console.error('Copy failed:', e);
             }
         }
 
@@ -2325,8 +2503,8 @@
             await saveConfig();
         }
 
-        function deleteUpstream(index) {
-            if (!confirm(t('confirm_delete_upstream'))) return;
+        async function deleteUpstream(index) {
+            if (!await confirmDialog(t('confirm_delete_upstream'))) return;
             config.upstreams.splice(index, 1);
             saveConfig();
         }
@@ -2392,7 +2570,7 @@
                         models = (data.data || []).map(m => m.id || m).filter(id => id);
                         upstreamModelsCache[upstreamName] = models;
                     }
-                } catch (e) { /* ignore */ }
+                } catch (e) { console.warn('加载上游模型列表失败:', e); }
             }
 
             if (models.length === 0) {
@@ -2466,7 +2644,7 @@
         }
 
         async function deleteAlias(index) {
-            if (!confirm(t('confirm_delete_alias'))) return;
+            if (!await confirmDialog(t('confirm_delete_alias'))) return;
             config.aliases.splice(index, 1);
             await saveConfig();
             renderAggregatedModels();
@@ -2532,8 +2710,9 @@
             if (!isNaN(v) && v !== '') return Number(v);
             try {
                 return JSON.parse(v);
-            } catch (e) {}
-            return v;
+            } catch (_e) {
+                return v;
+            }
         }
 
         async function loadAllUpstreamModels() {
@@ -2670,7 +2849,13 @@
             }
         }
 
+        let configSaving = false;
+
         async function saveConfig() {
+            if (configSaving) return false;
+            configSaving = true;
+            const saveButtons = document.querySelectorAll('.save-btn, [data-i18n="btn_save_access_control"]');
+            saveButtons.forEach(btn => { btn.disabled = true; });
             try {
                 const payload = { ...config };
                 payload.client_api_keys = getClientApiKeys();
@@ -2690,12 +2875,16 @@
                     renderAggregatedModels();
                     return true;
                 } else {
-                    showStatus(t('status_save_failed'), 'error');
+                    const err = await response.json().catch(() => ({}));
+                    showStatus(err.error ? t('status_save_failed_msg') + err.error : t('status_save_failed'), 'error');
                     return false;
                 }
             } catch (error) {
                 showStatus(t('status_save_failed_msg') + error.message, 'error');
                 return false;
+            } finally {
+                configSaving = false;
+                saveButtons.forEach(btn => { btn.disabled = false; });
             }
         }
 
@@ -2715,15 +2904,31 @@
             setTimeout(() => { status.style.display = 'none'; }, 5000);
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
         function escapeJson(value) {
             if (typeof value === 'string') return value;
             return JSON.stringify(value);
+        }
+
+        // === 通用确认对话框 ===
+        let confirmDialogResolve = null;
+
+        function confirmDialog(message, { title, danger = true } = {}) {
+            document.getElementById('confirmModalTitle').textContent = title || t('confirm_title');
+            document.getElementById('confirmModalMessage').textContent = message;
+            document.getElementById('confirmModalCancel').textContent = t('btn_cancel');
+            const okBtn = document.getElementById('confirmModalOk');
+            okBtn.textContent = t('btn_confirm');
+            okBtn.className = danger ? 'btn btn-danger' : 'btn btn-success';
+            document.getElementById('confirmModal').classList.add('active');
+            return new Promise(resolve => { confirmDialogResolve = resolve; });
+        }
+
+        function resolveConfirmDialog(result) {
+            document.getElementById('confirmModal').classList.remove('active');
+            if (confirmDialogResolve) {
+                confirmDialogResolve(result);
+                confirmDialogResolve = null;
+            }
         }
 
         // === OAuth related functions ===
@@ -2880,7 +3085,7 @@
                     baseUrlInput.value = 'https://chatgpt.com/backend-api';
                 }
                 baseUrlInput.readOnly = true;
-                baseUrlInput.style.background = '#f5f5f5';
+                baseUrlInput.style.background = 'var(--color-bg)';
             } else {
                 baseUrlInput.readOnly = false;
                 baseUrlInput.style.background = '';
@@ -2900,7 +3105,7 @@
 
                 if (!response.ok) {
                     const err = await response.json();
-                    body.innerHTML = `<div style="color: #dc3545;">${err.error || '登录失败'}</div>`;
+                    body.innerHTML = `<div style="color: var(--color-danger);">${err.error || t('status_login_failed')}</div>`;
                     return;
                 }
 
@@ -2922,20 +3127,14 @@
                 // Connect SSE to listen for login completion
                 connectOAuthSSE(upstreamName);
             } catch (error) {
-                body.innerHTML = `<div style="color: #dc3545;">${error.message}</div>`;
+                body.innerHTML = `<div style="color: var(--color-danger);">${error.message}</div>`;
             }
         }
 
-        function copyUserCode(code) {
-            const ta = document.createElement('textarea');
-            ta.value = code;
-            ta.style.position = 'fixed';
-            ta.style.opacity = '0';
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            showStatus(t('oauth_code_copied'), 'success');
+        async function copyUserCode(code) {
+            if (await copyText(code)) {
+                showStatus(t('oauth_code_copied'), 'success');
+            }
         }
 
         function openOAuthLoginModal() {
@@ -2957,14 +3156,14 @@
                     if (data.upstream === upstreamName) {
                         const status = data.status;
                         if (status.status === 'success') {
-                            showStatus('OAuth 登录成功！', 'success');
+                            showStatus(t('status_oauth_login_success'), 'success');
                             closeOAuthLoginModal();
                             loadOAuthTokenStatus();
                             loadAllUpstreamModels();
                             renderUpstreams();
                         } else if (status.status === 'failed' || status.status === 'expired') {
                             const body = document.getElementById('oauthLoginBody');
-                            body.innerHTML = `<div style="color: #dc3545;">${status.message || '登录失败'}</div>
+                            body.innerHTML = `<div style="color: var(--color-danger);">${status.message || t('status_login_failed')}</div>
                                 <button class="btn" onclick="oauthLogin('${upstreamName}')" style="margin-top: 10px;">${t('oauth_relogin')}</button>`;
                         }
                     }
@@ -2989,11 +3188,11 @@
             try {
                 await fetch(`/api/auth/token/${encodeURIComponent(upstreamName)}`, { method: 'DELETE' });
                 delete oauthTokenStatus[upstreamName];
-                showStatus('已登出', 'success');
+                showStatus(t('status_logout_success'), 'success');
                 await loadAllUpstreamModels();
                 renderUpstreams();
             } catch (error) {
-                showStatus('登出失败: ' + error.message, 'error');
+                showStatus(t('status_logout_failed') + error.message, 'error');
             }
         }
 
@@ -3003,7 +3202,7 @@
                 const resp = await fetch(`/api/cli-proxy-api/login/${encodeURIComponent(upstreamName)}`, { method: 'POST' });
                 if (!resp.ok) {
                     const err = await resp.json();
-                    showStatus(err.error || '登录失败', 'error');
+                    showStatus(err.error || t('status_login_failed'), 'error');
                     return;
                 }
                 const data = await resp.json();
@@ -3018,22 +3217,22 @@
                     const body = document.getElementById('oauthLoginBody');
                     body.innerHTML = `
                         <div class="instructions">
-                            <p>请在浏览器中完成授权登录。</p>
-                            <p>授权完成后，浏览器会跳转到一个类似 <code>http://127.0.0.1:xxxx/callback?code=...</code> 的地址（页面可能显示 404，这是正常的）。</p>
-                            <p><strong>请将浏览器地址栏中的完整 URL 粘贴到下方：</strong></p>
+                            <p>${t('status_oauth_complete_browser')}</p>
+                            <p>${t('oauth_callback_hint')}</p>
+                            <p><strong>${t('oauth_callback_paste_hint')}</strong></p>
                         </div>
                         <div class="form-group" style="margin-top:16px;">
-                            <textarea id="callbackUrlInput" rows="3" style="width:100%;padding:8px;font-family:monospace;font-size:13px;border:1px solid #ccc;border-radius:6px;resize:vertical;" placeholder="http://127.0.0.1:xxxx/callback?code=..."></textarea>
+                            <textarea id="callbackUrlInput" rows="3" style="width:100%;padding:8px;font-family:monospace;font-size:13px;border:1px solid var(--color-border-strong);border-radius:6px;resize:vertical;" placeholder="http://127.0.0.1:xxxx/callback?code=..."></textarea>
                         </div>
                         <div class="action-buttons">
-                            <button class="btn" onclick="closeOAuthLoginModal()">取消</button>
-                            <button class="btn btn-success" onclick="submitCallbackUrl('${upstreamName}')">确认</button>
+                            <button class="btn" onclick="closeOAuthLoginModal()">${t('btn_cancel')}</button>
+                            <button class="btn btn-success" onclick="submitCallbackUrl('${upstreamName}')">${t('btn_confirm')}</button>
                         </div>
                     `;
                     openOAuthLoginModal();
                 }
             } catch (error) {
-                showStatus('登录请求失败: ' + error.message, 'error');
+                showStatus(t('status_login_request_failed') + error.message, 'error');
             }
         }
 
@@ -3042,7 +3241,7 @@
             const input = document.getElementById('callbackUrlInput');
             const callbackUrl = input.value.trim();
             if (!callbackUrl) {
-                showStatus('请粘贴回调 URL', 'error');
+                showStatus(t('status_callback_url_required'), 'error');
                 return;
             }
 
@@ -3055,15 +3254,15 @@
 
                 if (!resp.ok) {
                     const err = await resp.json();
-                    showStatus(err.error || '登录失败', 'error');
+                    showStatus(err.error || t('status_login_failed'), 'error');
                     return;
                 }
 
                 closeOAuthLoginModal();
-                showStatus('回调已提交，正在完成登录...', 'info');
+                showStatus(t('status_callback_submitted'), 'info');
                 startLoginPoll(upstreamName);
             } catch (error) {
-                showStatus('提交失败: ' + error.message, 'error');
+                showStatus(t('status_callback_submit_failed') + error.message, 'error');
             }
         }
 
@@ -3463,8 +3662,13 @@
                 upstream.support_responses = true;
                 upstream.support_anthropic_messages = true;
             } else {
-                const apiKey = document.getElementById('upstreamApiKey').value || null;
-                upstream.api_key = apiKey;
+                let apiKey = document.getElementById('upstreamApiKey').value || null;
+                // 编辑时输入框留空视为"未修改"，回填掩码值由后端还原为原始 key
+                if (!apiKey && document.getElementById('upstreamName').readOnly) {
+                    const existing = config.upstreams.find(u => u.name === name);
+                    const existingKey = existing && existing.auth && existing.auth.type === 'api_key' ? existing.auth.key : null;
+                    if (existingKey) apiKey = existingKey;
+                }
                 upstream.auth = { type: 'api_key', key: apiKey };
             }
 
@@ -3537,7 +3741,7 @@
 
             // For OAuth, we can't test connection from the modal
             if (authType === 'anthropic_oauth' || authType === 'codex_oauth') {
-                showStatus('OAuth 上游请先保存配置并完成登录后再测试', 'loading');
+                showStatus(t('status_oauth_test_after_login'), 'loading');
                 return;
             }
 
@@ -3545,12 +3749,17 @@
 
             try {
                 const apiKey = document.getElementById('upstreamApiKey').value;
+                // 掩码 key 无法直接测试，附带上游名让后端用存储的真实 key
+                const upstreamName = isMaskedValue(apiKey)
+                    ? document.getElementById('upstreamName').value || null
+                    : null;
                 const response = await fetch('/api/upstream-models/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         base_url: baseUrl,
-                        api_key: apiKey || null
+                        api_key: apiKey || null,
+                        upstream: upstreamName
                     }),
                     signal: AbortSignal.timeout(12000)
                 });
