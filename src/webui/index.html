@@ -13,7 +13,7 @@
         :root {
             color-scheme: light dark;
             --color-bg: #f4f6f8;
-            --color-surface: var(--color-surface)fff;
+            --color-surface: #ffffff;
             --color-surface-subtle: #f8fafc;
             --color-surface-muted: #e9eef5;
             --color-border: #d9e0ea;
@@ -23,12 +23,16 @@
             --color-primary: #2563eb;
             --color-primary-hover: #1d4ed8;
             --color-primary-soft: #e8f0ff;
+            --color-tab-active-bg: #1d4ed8;
+            --color-tab-active-text: #ffffff;
             --color-on-accent: #ffffff;
             --color-success: #16a34a;
             --color-success-hover: #15803d;
             --color-success-soft: #e8f7ee;
             --color-danger: #dc2626;
-            --color-danger-hover: var(--color-danger-hover);
+            --color-danger-hover: #b91c1c;
+            --color-danger-action: #dc2626;
+            --color-danger-action-hover: #b91c1c;
             --color-danger-soft: #fee2e2;
             --color-secondary: #64748b;
             --color-secondary-hover: #475569;
@@ -57,11 +61,15 @@
                 --color-primary: #60a5fa;
                 --color-primary-hover: #3b82f6;
                 --color-primary-soft: #172554;
+                --color-tab-active-bg: #93c5fd;
+                --color-tab-active-text: #0f172a;
                 --color-success: #4ade80;
                 --color-success-hover: #22c55e;
                 --color-success-soft: #13341f;
                 --color-danger: #f87171;
                 --color-danger-hover: #ef4444;
+                --color-danger-action: #dc2626;
+                --color-danger-action-hover: #b91c1c;
                 --color-danger-soft: #3a1717;
                 --color-secondary: #94a3b8;
                 --color-secondary-hover: #cbd5e1;
@@ -177,10 +185,14 @@
             color: var(--color-text);
         }
         .main-tab.active {
-            background: var(--color-surface);
-            color: var(--color-text);
-            box-shadow: var(--shadow-sm);
-            font-weight: 600;
+            background: var(--color-tab-active-bg);
+            color: var(--color-tab-active-text);
+            box-shadow: 0 6px 14px rgba(37, 99, 235, 0.28);
+            font-weight: 700;
+        }
+        .main-tab.active:hover {
+            background: var(--color-tab-active-bg);
+            color: var(--color-tab-active-text);
         }
         .tab-panel {
             display: none;
@@ -250,10 +262,10 @@
             box-shadow: var(--focus-ring);
         }
         .btn-danger {
-            background: var(--color-danger);
+            background: var(--color-danger-action);
         }
         .btn-danger:hover {
-            background: var(--color-danger-hover);
+            background: var(--color-danger-action-hover);
         }
         .btn-success {
             background: var(--color-success);
@@ -416,6 +428,26 @@
             flex: 0 0 auto;
             min-width: 60px;
             white-space: nowrap;
+        }
+        .item-actions .alias-action-btn {
+            min-width: 76px;
+            min-height: 44px;
+            padding: 9px 16px;
+            border: 1px solid currentColor;
+            box-shadow: var(--shadow-sm);
+        }
+        .alias-edit-btn {
+            background: var(--color-primary-soft);
+            color: var(--color-primary);
+            border-color: var(--color-primary);
+        }
+        .alias-edit-btn:hover {
+            background: var(--color-tab-active-bg);
+            color: var(--color-tab-active-text);
+            border-color: var(--color-tab-active-bg);
+        }
+        .alias-delete-btn {
+            border-color: var(--color-danger-hover);
         }
         .switch {
             position: relative;
@@ -2429,8 +2461,8 @@
                             ${paramsHtml}
                         </div>
                         <div class="item-actions">
-                            <button class="btn" onclick="editAlias(${i})">${t('btn_edit')}</button>
-                            <button class="btn btn-danger" onclick="deleteAlias(${i})">${t('btn_delete')}</button>
+                            <button type="button" class="btn alias-action-btn alias-edit-btn" onclick="editAlias(${i})" aria-label="${t('btn_edit')} ${escapeHtml(a.alias)}">${t('btn_edit')}</button>
+                            <button type="button" class="btn btn-danger alias-action-btn alias-delete-btn" onclick="deleteAlias(${i})" aria-label="${t('btn_delete')} ${escapeHtml(a.alias)}">${t('btn_delete')}</button>
                         </div>
                     </div>
                 `;

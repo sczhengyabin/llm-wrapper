@@ -113,7 +113,7 @@ jobs:
         with:
           images: ${{ env.DOCKER_IMAGE }}
           flavor: |
-            suffix=-${{ matrix.arch }},onlatest=false
+            suffix=-${{ matrix.arch }},onlatest=true
           tags: |
             type=ref,event=tag
             type=sha,prefix=sha-
