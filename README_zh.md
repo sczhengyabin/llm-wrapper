@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" alt="LLM Wrapper Logo" width="180">
+</p>
+
 # LLM Wrapper
 
 一个轻量级的 LLM 协议聚合 wrapper，类似 litellm 但功能更精简。

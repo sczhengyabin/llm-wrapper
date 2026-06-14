@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="page_title">LLM Wrapper 配置</title>
+    <link rel="icon" type="image/png" href="/webui/favicon.png">
     <style>
         * {
             margin: 0;
@@ -108,6 +109,12 @@
             display: flex;
             align-items: center;
             gap: 8px;
+        }
+        .app-logo {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            flex-shrink: 0;
         }
         .version-badge {
             font-size: 12px;
@@ -1153,7 +1160,7 @@
 
     <div class="container" id="mainContainer" style="display:none;">
         <div class="header-bar">
-            <h1><span data-i18n="page_title">LLM Wrapper 配置</span> <span class="version-badge" id="versionBadge">v0.0.0</span></h1>
+            <h1><img class="app-logo" src="/webui/logo.svg" alt="" aria-hidden="true"><span data-i18n="page_title">LLM Wrapper 配置</span> <span class="version-badge" id="versionBadge">v0.0.0</span></h1>
             <div style="display:flex; align-items:center; gap:12px;">
                 <button class="btn btn-secondary" id="adminLogoutBtn" onclick="adminLogout()" data-i18n="admin_logout_btn">退出登录</button>
                 <div class="lang-switch">

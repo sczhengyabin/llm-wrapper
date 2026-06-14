@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" alt="LLM Wrapper Logo" width="180">
+</p>
+
 # LLM Wrapper
 
 A lightweight LLM protocol aggregation wrapper, similar to litellm but more minimal.
