@@ -4,332 +4,113 @@
 
 # LLM Wrapper
 
-A lightweight LLM protocol aggregation wrapper, similar to litellm but more minimal.
+一个轻量级的 LLM API 聚合网关（Rust + actix-web），类似 litellm 但更精简。多上游聚合、协议转换、参数注入、OAuth 上游接入，配备可视化 WebUI 管理。
 
-[中文文档](README_zh.md)
+[English](README_en.md)
 
-## Features
+## 功能特点
 
-- **Multi-upstream Aggregation**: Configure multiple upstream LLM APIs
-- **Multi-protocol Support**: Chat Completions, Responses, Anthropic Messages with automatic conversion
-- **Model Aliases**: Define local aliases for upstream models
-- **Parameter Settings**: Supports `override` (force) and `default` (fallback) modes
-- **CLIProxyAPI Auth**: Built-in OAuth management for Claude/Codex upstreams via CLIProxyAPI sidecar
-- **Hot Config Reload**: WebUI config changes take effect immediately without restart
-- **YAML Configuration**: Persistent config file support
-- **Single-file WebUI**: Management interface built with pure HTML + JS
-- **API Key Masking**: Auto-masks API keys in management endpoints
-- **Auto Alias**: One-click passthrough alias creation by clicking upstream model tags
+- **多上游聚合**：统一入口聚合多个上游 LLM API
+- **多协议支持**：Chat Completions、Responses、Anthropic Messages，可在协议间自动转换
+- **模型别名与路由**：为上游模型定义本地别名，支持参数注入
+- **参数注入**：`override`（强制覆盖）与 `default`（仅在用户未设置时生效）两种模式
+- **OAuth 上游**：内置 CLIProxyAPI 侧车，管理 Claude / Codex 账号登录与 token 自动刷新
+- **额度查询**：查询 CLIProxyAPI 账号的用量与额度
+- **配置热更新**：修改配置文件或在 WebUI 保存后立即生效，无需重启
+- **可视化 WebUI**：单文件管理界面，支持配置编辑、模型聚合、调试面板
+- **管理员认证**：Argon2 密码哈希 + HttpOnly Session Cookie，保护管理后台
+- **客户端 API Key**：可选的 `/v1/*` 接口鉴权（Bearer / x-api-key）
+- **密钥脱敏**：管理接口返回的密钥自动脱敏
+- **调试模式**：`X-Debug-Mode` 头返回完整的请求/响应链路数据，支持 SSE 实时流
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
-
-CLIProxyAPI is included as a git submodule. Clone with submodule:
-
-```bash
-git clone --recursive <repo-url>
-# Or if already cloned:
-git submodule update --init
-```
-
-### Build
+CLIProxyAPI 以 git 子模块集成，克隆时请包含子模块：
 
 ```bash
+git clone --recursive <仓库地址>      # 或已克隆后执行 git submodule update --init
 cargo build --release
+./target/release/llm-wrapper           # 默认监听 0.0.0.0:3000
 ```
 
-### Run
-
-```bash
-./target/release/llm-wrapper
-```
-
-### CLI Arguments
+命令行参数（优先级高于环境变量）：
 
 ```bash
 llm-wrapper -c config.yaml -a 0.0.0.0:3000
-
--c, --config <PATH>   Config file path (default: config.yaml)
--a, --addr <ADDR>     Bind address (default: 0.0.0.0:3000)
--v, --version         Print version
--h, --help            Print help
+#   -c, --config <PATH>   配置文件路径（默认 config.yaml）
+#   -a, --addr <ADDR>     监听地址（默认 0.0.0.0:3000）
 ```
 
-CLI args take precedence over environment variables.
+首次访问 WebUI（`http://localhost:3000`）会引导设置管理员密码。
 
-### Docker Deployment
-
-**Run with Docker (Recommended):**
+### Docker 部署
 
 ```bash
-docker run -d \
-  --name llm-wrapper \
-  -p 3000:3000 \
-  -p 8317:8317 \
+docker run -d --name llm-wrapper \
+  -p 3000:3000 -p 8317:8317 \
   -v $(pwd)/config:/app/config \
   -v llm-wrapper-data:/app/.llm-wrapper \
-  -e BIND_ADDR=0.0.0.0:3000 \
   -e CONFIG_PATH=/app/config/config.yaml \
   sczhengyabin/llm-wrapper:latest
 ```
 
-Ports:
-- `3000` - Main API and WebUI
-- `8317` - CLIProxyAPI (OAuth management for Claude/Codex)
+- 端口：`3000` 主 API 与 WebUI，`8317` CLIProxyAPI（Claude/Codex OAuth）
+- 数据卷：`/app/config` 配置目录，`/app/.llm-wrapper` token 缓存与账号数据
+- 或使用 `docker-compose up -d`
 
-Volumes:
-- `/app/config` - Configuration directory
-- `/app/.llm-wrapper` - Token cache and CLIProxyAPI data
+## 配置
 
-**With docker-compose:**
-
-```bash
-# Start
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
-```
-
-**Build image locally (optional):**
-
-```bash
-git submodule update --init
-docker build -t llm-wrapper:latest .
-```
-
-### Environment Variables
-
-- `CONFIG_PATH` - Config file path (default: config.yaml)
-- `BIND_ADDR` - Bind address (default: 0.0.0.0:3000)
-
-## Configuration Example
+复制 `config.yaml.example` 为 `config.yaml`，核心结构：
 
 ```yaml
-# CLIProxyAPI endpoint (for OAuth upstreams, default: http://127.0.0.1:8317)
-cli_proxy_api_endpoint: http://127.0.0.1:8317
-
-# Upstream config (name as unique identifier)
 upstreams:
-  - name: qwen-test
-    base_url: http://192.168.100.7:30002
+  - name: vllm                       # 上游唯一标识
+    base_url: http://127.0.0.1:30002
     auth:
-      type: api_key
-      key: null  # or "your-api-key"
+      type: api_key                  # api_key / anthropic_oauth / codex_oauth
+      key: null                      # api_key 时填写密钥，OAuth 时省略
     enabled: true
-    support_chat_completions: true   # Supports OpenAI chat/completions
-    support_responses: false          # Supports OpenAI responses
-    support_anthropic_messages: false # Supports Anthropic messages
-
-  - name: claude
-    base_url: https://api.anthropic.com
-    auth:
-      type: anthropic_oauth  # OAuth managed by CLIProxyAPI
-    enabled: true
-    support_chat_completions: false
+    support_chat_completions: true
     support_responses: false
-    support_anthropic_messages: true
+    support_anthropic_messages: false
 
-# Model alias config
 aliases:
-  - alias: qwen
-    target_model: Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
-    upstream: qwen-test
+  - alias: qwen                      # 请求中的 model 仅匹配此字段
+    target_model: Qwen/Qwen3-...     # 转发时替换的真实模型名（不参与路由）
+    upstream: vllm
     param_overrides:
       - key: temperature
         value: 0.7
-        mode: default  # or override
-      # extra_body configured separately
-      - key: extra_body
-        value:
-          chat_template_kwargs:
-            enable_thinking: false
-        mode: default
-    source: manual  # manually created alias
+        mode: default                # default 或 override
+    source: manual                   # manual 手动 / auto 点击模型标签自动创建
+
+# 可选：开启后上游不支持入口协议时自动转换
+# allow_protocol_conversion: true
+
+# 可选：开启 /v1/* 接口鉴权，客户端需携带 Authorization: Bearer <key>
+# client_api_keys:
+#   - name: "本机"
+#     key: "your-client-api-key"
 ```
 
-### Auth Types
+**认证类型**：`api_key`（静态密钥）、`anthropic_oauth`、`codex_oauth`（后两者由 CLIProxyAPI 管理，在 WebUI 一键登录，token 自动刷新）。
 
-| Type | Description |
-|------|-------------|
-| `api_key` | Static API key (default) |
-| `anthropic_oauth` | OAuth for Anthropic, managed by CLIProxyAPI |
-| `codex_oauth` | OAuth for Codex, managed by CLIProxyAPI |
+**路由规则**：请求的 `model` 仅匹配 `alias` 字段；`target_model` 仅用于转发替换，不参与路由。若想直接用上游模型名调用，在 WebUI 点击模型标签创建 auto alias 即可。
 
-### CLIProxyAPI Auth Flow
-
-For `anthropic_oauth` / `codex_oauth` upstreams, login via WebUI or API:
+## 使用
 
 ```bash
-# Start login
-curl -X POST http://localhost:3000/api/cli-proxy-api/login/claude
-
-# The response contains an auth URL, open it in browser to authenticate
-# Token is automatically cached and refreshed
-```
-
-## Routing Rules
-
-- **Alias Matching**: The `model` parameter in requests only matches the `alias` field
-- **Target Model is Not Routed**: `target_model` is only used to replace the model name when forwarding, not for routing
-- **Direct Upstream Call**: If no alias match is found and `model` matches an enabled upstream `name`, use that upstream directly
-
-This means:
-- With `alias: my-model -> target_model: gpt-4`, you must call with `model: "my-model"`
-- To support `model: "gpt-4"`, create an `alias: gpt-4 -> target_model: gpt-4` auto alias
-
-## API Endpoints
-
-### Config Management
-
-- `GET /api/config` - Get current config
-- `PUT /api/config` - Update config (saves to YAML file)
-
-### Upstream Model Management
-
-- `GET /api/upstream-models` - Get model list from all upstreams
-- `POST /api/upstream-models/alias` - Create auto alias for upstream model
-
-### Authentication
-
-- `POST /api/auth/login/{upstream_name}` - OAuth login for upstream
-- `DELETE /api/auth/token/{upstream_name}` - Clear OAuth token
-
-### CLIProxyAPI Auth
-
-- `POST /api/cli-proxy-api/login/{upstream_name}` - Start CLIProxyAPI login
-- `POST /api/cli-proxy-api/complete-login/{upstream_name}` - Complete login callback
-- `GET /api/cli-proxy-api/login-stream/{upstream_name}` - SSE login progress
-- `GET /api/cli-proxy-api/status` - Get CLIProxyAPI account status
-
-### OpenAI Compatible API
-
-- `POST /v1/chat/completions` - Chat completions
-- `POST /v1/responses` - Responses API (upstream support required)
-- `POST /v1/messages` - Anthropic Messages API (upstream support required)
-- `GET /v1/models` - Model list (returns all aliases)
-
-### Debug Endpoints
-
-- `GET /api/debug` - Get latest debug info
-- `DELETE /api/debug` - Clear debug info
-- `GET /api/debug/stream` - SSE streaming debug info
-
-### WebUI
-
-- `GET /` - WebUI management interface
-
-## WebUI Features
-
-### Aggregated Model List
-
-Displays all model aliases accessible via `/v1/models` at the top of the page, grouped by upstream.
-
-### Upstream Model Tags
-
-- **Blue dashed border**: Available model, click to create auto alias
-- **Green solid border**: Enabled auto alias, click to delete
-- **Red background**: Alias name conflict, cannot create
-
-### Auto Alias
-
-Auto alias is a passthrough alias: `alias = target_model = upstream model name`, with no parameter overrides.
-
-**Create:**
-- WebUI: Click model tags in upstream config cards
-- API: `POST /api/upstream-models/alias`
-
-**Delete:**
-- WebUI: Click enabled green model tags
-- Manually delete alias
-
-## Usage Examples
-
-### Chat Completions
-
-```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
+# Chat Completions（兼容 OpenAI）
+curl http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen",
-    "messages": [
-      {"role": "user", "content": "Hello"}
-    ]
-  }'
-```
+  -d '{"model": "qwen", "messages": [{"role": "user", "content": "Hello"}]}'
 
-### List Models
-
-```bash
+# 模型列表 / Responses / Anthropic Messages
 curl http://localhost:3000/v1/models
+# POST /v1/responses          需上游支持 Responses 协议
+# POST /v1/messages           需上游支持 Anthropic 协议
 ```
 
-### Create Auto Alias
+接口入口：`/v1/*` 客户端 API、`/api/*` 管理 API（需管理员登录）、`/` WebUI。
 
-```bash
-curl -X POST http://localhost:3000/api/upstream-models/alias \
-  -H "Content-Type: application/json" \
-  -d '{
-    "upstream": "qwen-test",
-    "model": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4"
-  }'
-```
-
-### Responses API
-
-```bash
-curl -X POST http://localhost:3000/v1/responses \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen",
-    "input": "Hello"
-  }'
-```
-
-> Note: Responses API requires upstream support. If the upstream only supports Chat Completions, the response format may not comply with the Responses API spec.
-
-### Anthropic Messages API
-
-```bash
-curl -X POST http://localhost:3000/v1/messages \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: your-anthropic-api-key" \
-  -d '{
-    "model": "claude-sonnet-4",
-    "max_tokens": 1024,
-    "messages": [
-      {"role": "user", "content": "Hello"}
-    ]
-  }'
-```
-
-> Note: Messages API requires upstream support for the Anthropic protocol (e.g., Anthropic API). If unsupported, it will return 404/405 errors.
-
-## Debug Mode
-
-Enable debug mode with the `X-Debug-Mode: true` header to get full request/response debug info:
-
-```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "X-Debug-Mode: true" \
-  -d '{
-    "model": "qwen",
-    "messages": [
-      {"role": "user", "content": "Hello"}
-    ]
-  }'
-```
-
-Response includes:
-- `client_request`: Original request sent to the Wrapper
-- `client_ip`: Client source IP
-- `client_url`: Client request URL
-- `endpoint`: Called endpoint
-- `upstream_url`: Upstream request URL
-- `upstream_request`: Request sent to upstream (with param overrides applied)
-- `upstream_response`: Response from upstream
+调试：请求加 `X-Debug-Mode: true` 头即可在响应中获得完整链路数据（客户端请求、上游 URL、注入后的上游请求、上游响应等），或在 WebUI 调试面板查看 SSE 实时流。
