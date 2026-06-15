@@ -172,6 +172,13 @@
             border-color: var(--color-primary);
             box-shadow: var(--focus-ring);
         }
+        .auto-refresh-countdown {
+            display: none;
+            min-width: 44px;
+            color: var(--color-text);
+            font-variant-numeric: tabular-nums;
+            text-align: right;
+        }
         h1 {
             color: var(--color-text);
             margin-bottom: 20px;
@@ -1196,6 +1203,7 @@
                     </label>
                     <input type="number" id="autoRefreshMinutes" min="1" step="1" value="5" onchange="updateAutoRefreshInterval()" aria-label="自动刷新间隔（分钟）" data-i18n-aria-label="auto_refresh_minutes_aria">
                     <span data-i18n="auto_refresh_minutes">分钟</span>
+                    <span class="auto-refresh-countdown" id="autoRefreshCountdown" aria-live="polite"></span>
                 </div>
                 <button class="btn btn-secondary" id="adminLogoutBtn" onclick="adminLogout()" data-i18n="admin_logout_btn">退出登录</button>
                 <div class="lang-switch">
@@ -1961,6 +1969,7 @@
         let config = { upstreams: [], aliases: [] };
         let autoRefreshInterval = null;
         let autoRefreshInFlight = false;
+        let autoRefreshNextRunAt = null;
         const AUTO_REFRESH_ENABLED_KEY = 'llm-wrapper-auto-refresh-enabled';
         const AUTO_REFRESH_MINUTES_KEY = 'llm-wrapper-auto-refresh-minutes';
         let editingAliasIndex = -1;
@@ -2018,28 +2027,60 @@
             }
         }
 
+        function formatAutoRefreshCountdown(totalSeconds) {
+            const seconds = Math.max(0, totalSeconds);
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            if (hours > 0) {
+                return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            }
+            return `${minutes}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function updateAutoRefreshCountdown() {
+            const countdown = document.getElementById('autoRefreshCountdown');
+            if (!countdown) return;
+            const enabled = document.getElementById('autoRefreshToggle')?.checked === true;
+            if (!enabled || !autoRefreshNextRunAt) {
+                countdown.textContent = '';
+                countdown.style.display = 'none';
+                return;
+            }
+            const remainingSeconds = Math.ceil(Math.max(0, autoRefreshNextRunAt - Date.now()) / 1000);
+            countdown.textContent = formatAutoRefreshCountdown(remainingSeconds);
+            countdown.style.display = 'inline-block';
+        }
+
         function stopAutoRefresh() {
             if (autoRefreshInterval) {
                 clearInterval(autoRefreshInterval);
                 autoRefreshInterval = null;
             }
             autoRefreshInFlight = false;
+            autoRefreshNextRunAt = null;
+            updateAutoRefreshCountdown();
         }
 
         function startAutoRefresh() {
             stopAutoRefresh();
             const toggle = document.getElementById('autoRefreshToggle');
             if (!toggle?.checked) return;
-            const minutes = getAutoRefreshMinutes();
+            const intervalMs = getAutoRefreshMinutes() * 60 * 1000;
+            autoRefreshNextRunAt = Date.now() + intervalMs;
+            updateAutoRefreshCountdown();
             autoRefreshInterval = setInterval(async () => {
-                if (autoRefreshInFlight) return;
+                updateAutoRefreshCountdown();
+                if (!autoRefreshNextRunAt || Date.now() < autoRefreshNextRunAt || autoRefreshInFlight) return;
                 autoRefreshInFlight = true;
                 try {
                     await loadConfig();
                 } finally {
                     autoRefreshInFlight = false;
+                    autoRefreshNextRunAt = Date.now() + intervalMs;
+                    updateAutoRefreshCountdown();
                 }
-            }, minutes * 60 * 1000);
+            }, 1000);
         }
 
         function toggleAutoRefresh() {
