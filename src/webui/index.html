@@ -146,6 +146,32 @@
             color: var(--color-text);
             box-shadow: var(--shadow-sm);
         }
+        .auto-refresh-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: var(--color-surface-muted);
+            border-radius: var(--radius-sm);
+            color: var(--color-text-muted);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .auto-refresh-control input[type="number"] {
+            width: 64px;
+            min-height: 30px;
+            padding: 4px 8px;
+            background: var(--color-surface);
+            color: var(--color-text);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+        }
+        .auto-refresh-control input[type="number"]:focus {
+            outline: none;
+            border-color: var(--color-primary);
+            box-shadow: var(--focus-ring);
+        }
         h1 {
             color: var(--color-text);
             margin-bottom: 20px;
@@ -1162,6 +1188,15 @@
         <div class="header-bar">
             <h1><img class="app-logo" src="/webui/logo.svg" alt="" aria-hidden="true"><span data-i18n="page_title">LLM Wrapper 配置</span> <span class="version-badge" id="versionBadge">v0.0.0</span></h1>
             <div style="display:flex; align-items:center; gap:12px;">
+                <div class="auto-refresh-control" title="自动刷新配置数据" data-i18n-title="auto_refresh_title">
+                    <span data-i18n="auto_refresh_label">自动刷新</span>
+                    <label class="switch">
+                        <input type="checkbox" id="autoRefreshToggle" onchange="toggleAutoRefresh()">
+                        <span class="slider"></span>
+                    </label>
+                    <input type="number" id="autoRefreshMinutes" min="1" step="1" value="5" onchange="updateAutoRefreshInterval()" aria-label="自动刷新间隔（分钟）" data-i18n-aria-label="auto_refresh_minutes_aria">
+                    <span data-i18n="auto_refresh_minutes">分钟</span>
+                </div>
                 <button class="btn btn-secondary" id="adminLogoutBtn" onclick="adminLogout()" data-i18n="admin_logout_btn">退出登录</button>
                 <div class="lang-switch">
                     <button class="lang-btn active" onclick="switchLang('zh')">中文</button>
@@ -1617,6 +1652,10 @@
                 admin_setup_btn: "创建并登录",
                 admin_login_btn: "登录",
                 admin_logout_btn: "退出登录",
+                auto_refresh_label: "自动刷新",
+                auto_refresh_minutes: "分钟",
+                auto_refresh_title: "按设定间隔自动刷新配置数据",
+                auto_refresh_minutes_aria: "自动刷新间隔（分钟）",
                 status_admin_setup_success: "管理员密码已创建",
                 status_admin_login_success: "登录成功",
                 status_admin_login_required: "登录已过期，请重新登录",
@@ -1810,6 +1849,10 @@
                 admin_setup_btn: "Create & Login",
                 admin_login_btn: "Login",
                 admin_logout_btn: "Logout",
+                auto_refresh_label: "Auto refresh",
+                auto_refresh_minutes: "min",
+                auto_refresh_title: "Refresh config data automatically at the selected interval",
+                auto_refresh_minutes_aria: "Auto refresh interval in minutes",
                 status_admin_setup_success: "Admin password created",
                 status_admin_login_success: "Login successful",
                 status_admin_login_required: "Session expired, please login again",
@@ -1858,6 +1901,20 @@
                     el.placeholder = val;
                 }
             });
+            document.querySelectorAll('[data-i18n-title]').forEach(el => {
+                const key = el.getAttribute('data-i18n-title');
+                const val = i18n[currentLang][key];
+                if (val && typeof val !== 'function') {
+                    el.title = val;
+                }
+            });
+            document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+                const key = el.getAttribute('data-i18n-aria-label');
+                const val = i18n[currentLang][key];
+                if (val && typeof val !== 'function') {
+                    el.setAttribute('aria-label', val);
+                }
+            });
             // Update lang attribute
             document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
             // Update active button
@@ -1902,6 +1959,10 @@
 
         // === App State ===
         let config = { upstreams: [], aliases: [] };
+        let autoRefreshInterval = null;
+        let autoRefreshInFlight = false;
+        const AUTO_REFRESH_ENABLED_KEY = 'llm-wrapper-auto-refresh-enabled';
+        const AUTO_REFRESH_MINUTES_KEY = 'llm-wrapper-auto-refresh-minutes';
         let editingAliasIndex = -1;
         let upstreamModelsCache = {};
         let upstreamModelsLoading = false;
@@ -1936,6 +1997,69 @@
             }
         }
 
+        function getAutoRefreshMinutes() {
+            const input = document.getElementById('autoRefreshMinutes');
+            const parsed = parseInt(input?.value, 10);
+            const minutes = Number.isFinite(parsed) ? Math.max(1, parsed) : 5;
+            if (input) input.value = String(minutes);
+            return minutes;
+        }
+
+        function initAutoRefreshControls() {
+            const toggle = document.getElementById('autoRefreshToggle');
+            const input = document.getElementById('autoRefreshMinutes');
+            if (!toggle || !input) return;
+            try {
+                const savedMinutes = parseInt(localStorage.getItem(AUTO_REFRESH_MINUTES_KEY), 10);
+                input.value = String(Number.isFinite(savedMinutes) && savedMinutes >= 1 ? savedMinutes : 5);
+                toggle.checked = localStorage.getItem(AUTO_REFRESH_ENABLED_KEY) === 'true';
+            } catch(e) {
+                input.value = '5';
+            }
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            autoRefreshInFlight = false;
+        }
+
+        function startAutoRefresh() {
+            stopAutoRefresh();
+            const toggle = document.getElementById('autoRefreshToggle');
+            if (!toggle?.checked) return;
+            const minutes = getAutoRefreshMinutes();
+            autoRefreshInterval = setInterval(async () => {
+                if (autoRefreshInFlight) return;
+                autoRefreshInFlight = true;
+                try {
+                    await loadConfig();
+                } finally {
+                    autoRefreshInFlight = false;
+                }
+            }, minutes * 60 * 1000);
+        }
+
+        function toggleAutoRefresh() {
+            const enabled = document.getElementById('autoRefreshToggle')?.checked === true;
+            try { localStorage.setItem(AUTO_REFRESH_ENABLED_KEY, String(enabled)); } catch(e) {}
+            if (enabled && document.getElementById('mainContainer')?.style.display !== 'none') {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        }
+
+        function updateAutoRefreshInterval() {
+            const minutes = getAutoRefreshMinutes();
+            try { localStorage.setItem(AUTO_REFRESH_MINUTES_KEY, String(minutes)); } catch(e) {}
+            if (document.getElementById('autoRefreshToggle')?.checked) {
+                startAutoRefresh();
+            }
+        }
+
         function setAdminLoginMode(mode) {
             const loginContainer = document.getElementById('adminLoginContainer');
             const mainContainer = document.getElementById('mainContainer');
@@ -1953,9 +2077,11 @@
             if (mode === 'hidden') {
                 loginContainer.style.display = 'none';
                 mainContainer.style.display = 'block';
+                startAutoRefresh();
                 return;
             }
 
+            stopAutoRefresh();
             mainContainer.style.display = 'none';
             loginContainer.style.display = 'block';
 
@@ -2186,6 +2312,7 @@
         }
 
         function stopAllPolling() {
+            stopAutoRefresh();
             if (debugPollInterval) {
                 clearInterval(debugPollInterval);
                 debugPollInterval = null;
@@ -2229,6 +2356,7 @@
                     switchMainTab(savedTab);
                 }
             } catch(e) {}
+            initAutoRefreshControls();
             loadVersion();
             checkAdminStatus();
         });
