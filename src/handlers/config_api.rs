@@ -51,15 +51,19 @@ pub(crate) fn restore_masked_secrets(
     for upstream in &mut new.upstreams {
         if let UpstreamAuth::ApiKey { key: Some(k) } = &mut upstream.auth {
             if is_masked(k) {
-                let real = current.upstreams.iter().find_map(|u| {
-                    if u.name != upstream.name {
-                        return None;
-                    }
-                    match &u.auth {
+                let real = current
+                    .upstreams
+                    .iter()
+                    .find(|u| u.name == upstream.name)
+                    .or_else(|| {
+                        current.upstreams.iter().find(|u| {
+                            matches!(&u.auth, UpstreamAuth::ApiKey { key: Some(rk) } if mask_secret(rk) == *k)
+                        })
+                    })
+                    .and_then(|u| match &u.auth {
                         UpstreamAuth::ApiKey { key } => key.clone(),
                         _ => None,
-                    }
-                });
+                    });
                 match real {
                     Some(real_key) => *k = real_key,
                     None => {
@@ -240,9 +244,18 @@ mod tests {
     }
 
     #[test]
-    fn test_restore_masked_secrets_unknown_upstream_rejected() {
+    fn test_restore_masked_secrets_renamed_upstream_matched_by_mask() {
         let current = config_with_upstream_key("up1", Some("sk-abcdefghijklxy12"));
         let mut submitted = config_with_upstream_key("renamed", Some("sk-a••••••xy12"));
+
+        assert!(restore_masked_secrets(&mut submitted, &current).is_ok());
+        assert_eq!(upstream_key(&submitted), Some("sk-abcdefghijklxy12"));
+    }
+
+    #[test]
+    fn test_restore_masked_secrets_unknown_mask_rejected() {
+        let current = config_with_upstream_key("up1", Some("sk-abcdefghijklxy12"));
+        let mut submitted = config_with_upstream_key("renamed", Some("sk-x••••••zz99"));
 
         assert!(restore_masked_secrets(&mut submitted, &current).is_err());
     }

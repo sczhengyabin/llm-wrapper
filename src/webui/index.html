@@ -1600,6 +1600,7 @@
                 status_select_model: "请选择或输入目标模型",
                 status_alias_exists: (n) => `别名 "${n}" 已存在，请修改`,
                 status_alias_exists_create: (n) => `别名 "${n}" 已存在，无法创建`,
+                status_upstream_name_exists: (n) => `上游名称 "${n}" 已存在`,
                 status_delete_failed: "删除失败：",
                 status_create_failed: "创建失败：",
                 status_unknown_error: "未知错误",
@@ -1797,6 +1798,7 @@
                 status_select_model: "Please select or type a target model",
                 status_alias_exists: (n) => `Alias "${n}" already exists, please change it`,
                 status_alias_exists_create: (n) => `Alias "${n}" already exists, cannot create`,
+                status_upstream_name_exists: (n) => `Upstream name "${n}" already exists`,
                 status_delete_failed: "Delete failed: ",
                 status_create_failed: "Create failed: ",
                 status_unknown_error: "Unknown error",
@@ -1973,6 +1975,7 @@
         const AUTO_REFRESH_ENABLED_KEY = 'llm-wrapper-auto-refresh-enabled';
         const AUTO_REFRESH_MINUTES_KEY = 'llm-wrapper-auto-refresh-minutes';
         let editingAliasIndex = -1;
+        let editingUpstreamIndex = -1;
         let upstreamModelsCache = {};
         let upstreamModelsLoading = false;
         let oauthStatusLoading = false;
@@ -2713,7 +2716,10 @@
 
         async function deleteUpstream(index) {
             if (!await confirmDialog(t('confirm_delete_upstream'))) return;
-            config.upstreams.splice(index, 1);
+            const removed = config.upstreams.splice(index, 1)[0];
+            if (removed) {
+                config.aliases = config.aliases.filter(a => a.upstream !== removed.name);
+            }
             saveConfig();
         }
 
@@ -3851,8 +3857,19 @@
         saveUpstream = async function (e) {
             e.preventDefault();
             const name = document.getElementById('upstreamName').value;
+            const originalName = document.getElementById('upstreamName').dataset.originalName || '';
+            const isEditing = editingUpstreamIndex >= 0;
             const authType = document.getElementById('upstreamAuthType').value;
             const enabledElement = document.getElementById('upstreamEnabled');
+
+            if (!isEditing && config.upstreams.some(u => u.name === name)) {
+                showStatus(t('status_upstream_name_exists', name), 'error');
+                return;
+            }
+            if (isEditing && name !== originalName && config.upstreams.some((u, i) => u.name === name && i !== editingUpstreamIndex)) {
+                showStatus(t('status_upstream_name_exists', name), 'error');
+                return;
+            }
 
             let upstream = {
                 name: name,
@@ -3871,18 +3888,21 @@
                 upstream.support_anthropic_messages = true;
             } else {
                 let apiKey = document.getElementById('upstreamApiKey').value || null;
-                // 编辑时输入框留空视为"未修改"，回填掩码值由后端还原为原始 key
-                if (!apiKey && document.getElementById('upstreamName').readOnly) {
-                    const existing = config.upstreams.find(u => u.name === name);
+                if (!apiKey && isEditing) {
+                    const existing = config.upstreams[editingUpstreamIndex];
                     const existingKey = existing && existing.auth && existing.auth.type === 'api_key' ? existing.auth.key : null;
                     if (existingKey) apiKey = existingKey;
                 }
                 upstream.auth = { type: 'api_key', key: apiKey };
             }
 
-            const index = config.upstreams.findIndex(u => u.name === name);
-            if (index !== -1) {
-                config.upstreams[index] = upstream;
+            if (isEditing) {
+                if (name !== originalName) {
+                    config.aliases.forEach(a => {
+                        if (a.upstream === originalName) a.upstream = name;
+                    });
+                }
+                config.upstreams[editingUpstreamIndex] = upstream;
             } else {
                 config.upstreams.push(upstream);
             }
@@ -3898,10 +3918,11 @@
 
         editUpstream = function (index) {
             const u = config.upstreams[index];
+            editingUpstreamIndex = index;
             document.getElementById('upstreamModal').classList.add('active');
             document.getElementById('upstreamModalTitle').textContent = t('modal_edit_upstream');
             document.getElementById('upstreamName').value = u.name;
-            document.getElementById('upstreamName').readOnly = true;
+            document.getElementById('upstreamName').dataset.originalName = u.name;
             document.getElementById('upstreamBaseUrl').value = u.base_url;
             document.getElementById('upstreamSupportChat').checked = u.support_chat_completions === true;
             document.getElementById('upstreamSupportResponses').checked = u.support_responses === true;
@@ -3921,18 +3942,20 @@
 
         closeUpstreamModal = function () {
             document.getElementById('upstreamModal').classList.remove('active');
-            document.getElementById('upstreamName').readOnly = false;
             document.getElementById('upstreamForm').reset();
+            document.getElementById('upstreamName').dataset.originalName = '';
+            editingUpstreamIndex = -1;
             document.getElementById('upstreamAuthType').value = 'api_key';
             document.getElementById('anthropicBaseUrlContainer').style.display = 'none';
             toggleAuthFields();
         };
 
         openUpstreamModal = function () {
+            editingUpstreamIndex = -1;
             document.getElementById('upstreamModal').classList.add('active');
             document.getElementById('upstreamModalTitle').textContent = t('modal_add_upstream');
             document.getElementById('upstreamForm').reset();
-            document.getElementById('upstreamName').readOnly = false;
+            document.getElementById('upstreamName').dataset.originalName = '';
             document.getElementById('upstreamAuthType').value = 'api_key';
             document.getElementById('anthropicBaseUrlContainer').style.display = 'none';
             toggleAuthFields();
