@@ -193,7 +193,7 @@ pub(crate) async fn test_upstream_models(
     }
 
     let mut request = reqwest::Client::new()
-        .get(format!("{}/v1/models", base_url))
+        .get(models::append_upstream_api_path(base_url, "/models"))
         .timeout(UPSTREAM_TEST_TIMEOUT);
 
     if let Some(key) = api_key.as_deref().filter(|k| !k.is_empty() && *k != "none") {

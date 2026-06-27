@@ -212,6 +212,10 @@ fn default_true() -> bool {
     true
 }
 
+pub fn append_upstream_api_path(base_url: &str, path: &str) -> String {
+    format!("{}{}", base_url.trim().trim_end_matches('/'), path)
+}
+
 impl UpstreamConfig {
     #[allow(dead_code)]
     pub fn new(name: String, base_url: String) -> Self {
@@ -235,7 +239,7 @@ impl UpstreamConfig {
 
     /// 获取模型列表 URL
     pub fn get_models_url(&self) -> String {
-        format!("{}/v1/models", self.base_url)
+        append_upstream_api_path(&self.base_url, "/models")
     }
 
     /// 获取 API Key（仅 ApiKey 类型）
@@ -376,6 +380,14 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_append_upstream_api_path_uses_configured_base_url() {
+        assert_eq!(
+            append_upstream_api_path("https://example.com/api/", "/models"),
+            "https://example.com/api/models"
+        );
+    }
 
     #[test]
     fn test_oauth_auth_json_roundtrip() {

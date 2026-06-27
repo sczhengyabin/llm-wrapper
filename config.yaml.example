@@ -4,7 +4,7 @@
 upstreams:
   # 上游 1: vllm 服务（name 用作唯一标识）
   - name: vllm
-    base_url: http://127.0.0.1:30002
+    base_url: http://127.0.0.1:30002/v1
     api_key: null  # 如果不需要密钥，设为 null 或空字符串
     enabled: true
     support_chat_completions: true
@@ -13,7 +13,7 @@ upstreams:
 
   # 上游 2: OpenAI 兼容服务
   - name: omlx
-    base_url: http://127.0.0.1:8080
+    base_url: http://127.0.0.1:8080/v1
     api_key: your-api-key-here
     enabled: true
     support_chat_completions: true

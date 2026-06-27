@@ -214,6 +214,18 @@ pub fn is_anthropic_messages_endpoint(endpoint_path: &str) -> bool {
     endpoint_path == "/v1/messages" || endpoint_path.starts_with("/v1/messages/")
 }
 
+fn build_unversioned_endpoint_path(endpoint_path: &str) -> String {
+    match endpoint_path {
+        "/v1/chat/completions" => "/chat/completions".to_string(),
+        "/v1/responses" => "/responses".to_string(),
+        "/v1/messages" => "/anthropic".to_string(),
+        path if path.starts_with("/v1/messages/") => {
+            format!("/anthropic/{}", &path["/v1/messages/".len()..])
+        }
+        path => path.to_string(),
+    }
+}
+
 fn build_upstream_url(route: &RouteResult, endpoint_path: &str, query_string: &str) -> String {
     let base_url = if is_anthropic_messages_endpoint(endpoint_path) {
         route
@@ -223,8 +235,9 @@ fn build_upstream_url(route: &RouteResult, endpoint_path: &str, query_string: &s
     } else {
         &route.upstream_base_url
     };
-    let path = build_endpoint_path_with_query(endpoint_path, query_string);
-    format!("{}{}", base_url.trim_end_matches('/'), path)
+    let endpoint_path = build_unversioned_endpoint_path(endpoint_path);
+    let path = build_endpoint_path_with_query(&endpoint_path, query_string);
+    format!("{}{}", base_url.trim().trim_end_matches('/'), path)
 }
 
 pub fn anthropic_passthrough_headers(
@@ -338,36 +351,67 @@ mod tests {
     #[test]
     fn test_build_upstream_url_uses_anthropic_base_url_and_query() {
         let mut route = create_test_route(HashMap::new(), HashMap::new());
-        route.upstream_base_url = "https://example.com/openai/".to_string();
-        route.anthropic_base_url = Some("https://example.com/anthropic/".to_string());
+        route.upstream_base_url = "https://example.com/v1".to_string();
+        route.anthropic_base_url = Some("https://example.com/anthropic-root/".to_string());
 
         let url = build_upstream_url(&route, "/v1/messages", "beta=true");
 
-        assert_eq!(url, "https://example.com/anthropic/v1/messages?beta=true");
+        assert_eq!(
+            url,
+            "https://example.com/anthropic-root/anthropic?beta=true"
+        );
     }
 
     #[test]
-    fn test_build_upstream_url_uses_default_base_for_non_anthropic() {
+    fn test_build_upstream_url_uses_configured_base_for_non_anthropic() {
         let mut route = create_test_route(HashMap::new(), HashMap::new());
-        route.upstream_base_url = "https://example.com/openai/".to_string();
-        route.anthropic_base_url = Some("https://example.com/anthropic/".to_string());
+        route.upstream_base_url = "https://example.com/custom-root/".to_string();
+        route.anthropic_base_url = Some("https://example.com/anthropic-root/".to_string());
 
         let url = build_upstream_url(&route, "/v1/chat/completions", "");
 
-        assert_eq!(url, "https://example.com/openai/v1/chat/completions");
+        assert_eq!(url, "https://example.com/custom-root/chat/completions");
     }
 
     #[test]
-    fn test_build_upstream_url_uses_anthropic_base_url_for_messages_subpaths() {
+    fn test_build_upstream_url_appends_protocol_paths() {
         let mut route = create_test_route(HashMap::new(), HashMap::new());
-        route.upstream_base_url = "https://example.com/openai/".to_string();
-        route.anthropic_base_url = Some("https://example.com/anthropic/".to_string());
+        route.upstream_base_url = "https://example.com/v1/".to_string();
+
+        let chat_url = build_upstream_url(&route, "/v1/chat/completions", "");
+        let responses_url = build_upstream_url(&route, "/v1/responses", "stream=true");
+
+        assert_eq!(chat_url, "https://example.com/v1/chat/completions");
+        assert_eq!(
+            responses_url,
+            "https://example.com/v1/responses?stream=true"
+        );
+    }
+
+    #[test]
+    fn test_build_upstream_url_appends_anthropic_path() {
+        let mut route = create_test_route(HashMap::new(), HashMap::new());
+        route.upstream_base_url = "https://example.com/openai-root".to_string();
+        route.anthropic_base_url = Some("https://example.com/anthropic-root/".to_string());
+
+        let url = build_upstream_url(&route, "/v1/messages", "beta=true");
+
+        assert_eq!(
+            url,
+            "https://example.com/anthropic-root/anthropic?beta=true"
+        );
+    }
+
+    #[test]
+    fn test_build_upstream_url_appends_anthropic_subpath() {
+        let mut route = create_test_route(HashMap::new(), HashMap::new());
+        route.upstream_base_url = "https://example.com/root".to_string();
 
         let url = build_upstream_url(&route, "/v1/messages/count_tokens", "beta=true");
 
         assert_eq!(
             url,
-            "https://example.com/anthropic/v1/messages/count_tokens?beta=true"
+            "https://example.com/root/anthropic/count_tokens?beta=true"
         );
     }
 

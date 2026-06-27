@@ -1358,8 +1358,8 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label data-i18n="upstream_baseurl_label">基础 URL</label>
-                    <input type="text" id="upstreamBaseUrl" required placeholder="http://example.com:3000">
+                    <label data-i18n="upstream_baseurl_label">基础 URL（协议根路径）</label>
+                    <input type="text" id="upstreamBaseUrl" required placeholder="http://example.com:3000/v1">
                 </div>
                 <div id="apiKeyFields">
                     <div class="form-group">
@@ -1533,7 +1533,7 @@
                 modal_edit_alias: "编辑别名",
                 upstream_name_label: "名称 *",
                 upstream_name_placeholder: "上游名称（用作唯一标识）",
-                upstream_baseurl_label: "基础 URL *",
+                upstream_baseurl_label: "基础 URL（协议根路径）*",
                 upstream_apikey_label: "API 密钥",
                 upstream_apikey_placeholder: "留空表示不需要密钥；编辑时留空或保留掩码值则不修改原 Key",
                 upstream_protocol_label: "协议支持", // deprecated
@@ -1543,8 +1543,8 @@
                 protocol_chat_completions: "Chat Completions",
                 protocol_responses: "Responses",
                 protocol_anthropic_messages: "Anthropic Messages",
-                anthropic_baseurl_placeholder: "留空则使用上方的 base URL",
-                anthropic_baseurl_hint: "Anthropic messages 协议的独立 base URL，留空则与 OpenAI 一致",
+                anthropic_baseurl_placeholder: "留空则使用上方的基础 URL",
+                anthropic_baseurl_hint: "Anthropic messages 协议的独立基础 URL；wrapper 会在后面补 /anthropic",
                 alias_name_label: "别名 *",
                 alias_name_placeholder: "本地使用的别名",
                 alias_upstream_label: "上游 *",
@@ -1731,7 +1731,7 @@
                 modal_edit_alias: "Edit Alias",
                 upstream_name_label: "Name *",
                 upstream_name_placeholder: "Upstream name (unique identifier)",
-                upstream_baseurl_label: "Base URL *",
+                upstream_baseurl_label: "Base URL (protocol root) *",
                 upstream_apikey_label: "API Key",
                 upstream_apikey_placeholder: "Leave empty if no key needed; when editing, leave empty or keep masked value to preserve the original key",
                 upstream_protocol_label: "Protocol Support", // deprecated
@@ -1742,7 +1742,7 @@
                 protocol_responses: "Responses",
                 protocol_anthropic_messages: "Anthropic Messages",
                 anthropic_baseurl_placeholder: "Leave empty to use the base URL above",
-                anthropic_baseurl_hint: "Independent base URL for Anthropic messages protocol, leaves empty to match OpenAI",
+                anthropic_baseurl_hint: "Independent base URL for Anthropic messages protocol; wrapper appends /anthropic",
                 alias_name_label: "Alias *",
                 alias_name_placeholder: "Local alias name",
                 alias_upstream_label: "Upstream *",

@@ -65,7 +65,7 @@ docker run -d --name llm-wrapper \
 ```yaml
 upstreams:
   - name: vllm                       # 上游唯一标识
-    base_url: http://127.0.0.1:30002
+    base_url: http://127.0.0.1:30002/v1
     auth:
       type: api_key                  # api_key / anthropic_oauth / codex_oauth
       key: null                      # api_key 时填写密钥，OAuth 时省略
@@ -92,6 +92,8 @@ aliases:
 #   - name: "本机"
 #     key: "your-client-api-key"
 ```
+
+**上游基础 URL**：API Key 上游填写上游实际的协议根路径，例如 `http://domain:port/v1` 或其他自定义根路径；wrapper 严格使用该配置，只在后面补 `/chat/completions`、`/responses`、`/anthropic` 或 `/models`，不会自动添加 `/v1`。
 
 **认证类型**：`api_key`（静态密钥）、`anthropic_oauth`、`codex_oauth`（后两者由 CLIProxyAPI 管理，在 WebUI 一键登录，token 自动刷新）。
 
